@@ -53,8 +53,13 @@ targets:
           # its children by XcodeGen, so this excludes src/platforms/**
           # without exercising globstar expansion.
           - "platforms/*"
+      # NB: do NOT add a `group:` key to a source entry whose group name
+      # equals its own path (e.g. `group: assets` on `path: assets`).
+      # XcodeGen then registers the group as its own parent and
+      # `makePathRelative`'s parent-chain walk spins forever, hanging
+      # `xcodegen generate` at "Generating project..." (CI stack sample
+      # 2026-10-06 pointed exactly at SourceGenerator.makePathRelative).
       - path: assets
-        group: assets
         buildPhase: resources
     settings:
       base:
