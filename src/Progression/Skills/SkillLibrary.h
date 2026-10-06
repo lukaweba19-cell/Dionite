@@ -12,6 +12,7 @@
 // ============================================================================
 #pragma once
 #include "Progression/Classes/ClassRegistry.h"
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <unordered_map>

@@ -17,7 +17,7 @@ struct SkillNode {
     std::string description;
     TreeBranch branch;
     int tier;
-    std::vector<std::string> requires;
+    std::vector<std::string> requirements;
     int cost = 1;
     bool keystone = false;
     // Effects keyed by stat name -> additive amount per allocated point
@@ -41,8 +41,8 @@ public:
         const auto* n = find(id);
         if (!n) return false;
         if (n->cost > availablePoints) return false;
-        if (n->requires.empty()) return true;
-        for (auto& dep : n->requires) {
+        if (n->requirements.empty()) return true;
+        for (auto& dep : n->requirements) {
             auto it = spent.find(dep);
             if (it == spent.end() || it->second <= 0) return false;
         }

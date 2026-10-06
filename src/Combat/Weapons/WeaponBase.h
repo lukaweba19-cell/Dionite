@@ -29,20 +29,20 @@ struct WeaponEnchantment {
     std::string name;
     std::string description;
     // Hook executed on hit / on kill (see Enchantments.h for handlers)
-    enum class Trigger { OnHit, OnKill, OnCrit, OnReload } trigger;
+    enum class Trigger { OnHit, OnKill, OnCrit, OnReload } trigger = Trigger::OnHit;
 };
 
 struct WeaponBase {
     std::string id;
     std::string displayName;
-    WeaponKind kind;
-    float damage;
-    float fireRate;
-    float projectileSpeed;
-    float spread;
-    int   magazineSize;
+    WeaponKind kind = WeaponKind::Pistol;
+    float damage = 0.f;
+    float fireRate = 0.f;
+    float projectileSpeed = 0.f;
+    float spread = 0.f;
+    int   magazineSize = 0;
     int   pellets = 1;
-    float reloadTime;
+    float reloadTime = 0.f;
     std::string projColor;
     float burnDmg = 0.f;
     float slow = 0.f;

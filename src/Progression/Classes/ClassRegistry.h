@@ -3,6 +3,7 @@
 // Each class has a primary resource, base stats, and a skill kit.
 // ============================================================================
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
 

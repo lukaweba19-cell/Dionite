@@ -105,8 +105,8 @@ enum MeshFactory {
         let vertices: [Float] = [
             -0.5, 0, -0.5, 0, 1, 0, 0, 0,
              0.5, 0, -0.5, 0, 1, 0, 1, 0,
-             0.5, 0,  0.5, 0, 1, 0, 1, 1,
-            -0.5, 0,  0.5, 0, 1, 0, 0, 1
+             0.5, 0, 0.5, 0, 1, 0, 1, 1,
+            -0.5, 0, 0.5, 0, 1, 0, 0, 1
         ]
         let indices: [UInt16] = [0, 1, 2, 0, 2, 3]
         return (vertices, indices)
@@ -243,7 +243,7 @@ final class GameRenderer {
             (.sourceAlpha, .one, false)                   // additive
         ]
         for mode in blendModes {
-            let attachment = pipelineDescriptor.colorAttachments[0]!
+            let attachment = pipelineDescriptor.colorAttachments[0]
             attachment.isBlendingEnabled = true
             attachment.rgbBlendSourceFactor = mode.src
             attachment.rgbBlendDestinationFactor = mode.dst

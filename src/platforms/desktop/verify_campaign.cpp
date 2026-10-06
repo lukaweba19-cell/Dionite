@@ -268,7 +268,7 @@ int main() {
         rt.travel(r);
         rt.fillHud(hud);
         op = tr = ad = 0;
-        inst = rt.instanceData(op, tr, ad);
+        (void)rt.instanceData(op, tr, ad);
         checkf(hud.region == r && op > 200,
                "travel to region %d generates a level (%d opaque instances)", r, op);
     }

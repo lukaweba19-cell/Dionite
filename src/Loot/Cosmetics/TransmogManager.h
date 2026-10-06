@@ -3,6 +3,7 @@
 // forever for any future character on the account). Dyes recolor allowed channels.
 #pragma once
 #include "CosmeticItem.h"
+#include <array>
 #include <unordered_map>
 #include <unordered_set>
 #include <string>

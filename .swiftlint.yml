@@ -41,16 +41,11 @@ disabled_rules:
 opt_in_rules:
   - empty_count
   - empty_string
-  - duplicated_keys
-  - unreachable_while_self
+  - dictionary_literal_duplicate_keys
   - unused_setter_value
 
 analyzer_rules:
   - unused_declaration
-
-line_length:
-  warning: 140
-  error: 260
 
 type_name:
   min_length: 2

@@ -2,7 +2,7 @@
 # Dionite — CI: SwiftLint + static/leak analysis + unsigned .ipa on every push.
 #
 # Jobs (parallel):
-#   cpp-checks  — g++ -Werror over every TU, GCC -fanalyzer static analysis,
+#   cpp-checks  — g++ -Werror over every TU, clang static analysis,
 #                 the 81-check campaign verifier, and a valgrind leak check
 #                 over a full campaign run.          (ubuntu-latest)
 #   swiftlint   — swiftlint lint --strict over the Swift/Metal host.
@@ -43,31 +43,35 @@ jobs:
             -Isrc -Isrc/external -Iplatforms/ios/Dionite -fsyntax-only $files
           echo "OK: $(echo "$files" | wc -l) translation units compile clean"
 
-      - name: Static analysis (GCC -fanalyzer, whole tree)
+      - name: Static analysis (clang --analyze, whole tree)
         run: |
-          set -eu
-          # GameRuntime.cpp is analyzed in its own step below: its nlohmann/json
-          # save-load path makes the analyzer an order of magnitude slower.
-          files=$(find src -name '*.cpp' | sort | grep -v '^src/Game/GameRuntime.cpp$')
-          files="$files platforms/ios/Dionite/DioniteBridgeImpl.cpp"
+          # Clang static analyzer over every TU (leaks, null derefs, uninitialized
+          # values, dead stores). GCC's -fanalyzer was replaced here: on GCC 13 it
+          # false-positives on any struct-with-std::string default construction and
+          # on std::unordered_map insertion, which makes a -Werror gate useless.
+          # Dynamic leak checking stays with valgrind in the step below.
+          CLANGXX="$(command -v clang++-18 || command -v clang++-17 || command -v clang++-16 || command -v clang++-15 || command -v clang++ || true)"
+          if [ -z "$CLANGXX" ]; then
+            sudo apt-get update && sudo apt-get install -y clang
+            CLANGXX="$(command -v clang++)"
+          fi
+          echo "Using $($CLANGXX --version | head -1)"
+          failed=0
           count=0
-          for f in $files; do
-            g++ -std=c++17 -fanalyzer -Wall -Wextra -Wno-missing-field-initializers -Werror \
-              -Isrc -isystem src/external -Iplatforms/ios/Dionite -c "$f" -o /tmp/analyzer.o
+          for f in $(find src -name '*.cpp' | sort) platforms/ios/Dionite/DioniteBridgeImpl.cpp; do
+            out="$($CLANGXX -std=c++17 -Wall -Wextra -Isrc -isystem src/external \
+              -Iplatforms/ios/Dionite --analyze -Xanalyzer -analyzer-output=text \
+              -o /dev/null "$f" 2>&1)" || {
+              echo "::error::analysis failed to run on $f"; echo "$out"; failed=1; continue; }
+            if echo "$out" | grep -q "warning:"; then
+              echo "::error::static analyzer findings in $f"
+              echo "$out"
+              failed=1
+            fi
             count=$((count + 1))
           done
-          echo "OK: -fanalyzer clean on $count translation units"
-
-      - name: Deep static analysis (GameRuntime.cpp)
-        run: |
-          set -eu
-          # Bounded so a pathological analyzer run cannot hang the job.
-          timeout 1500 g++ -std=c++17 -fanalyzer -Wall -Wextra \
-            -Wno-missing-field-initializers -Werror \
-            -Isrc -isystem src/external \
-            -c src/Game/GameRuntime.cpp -o /tmp/analyzer-gr.o \
-            || { echo "::error::GameRuntime.cpp static analysis failed or exceeded 25 min"; exit 1; }
-          echo "OK: GameRuntime.cpp analyzed clean"
+          if [ "$failed" -ne 0 ]; then exit 1; fi
+          echo "OK: clang static analyzer clean on $count translation units"
 
       - name: Campaign verifier (81 checks over the full game loop)
         run: |

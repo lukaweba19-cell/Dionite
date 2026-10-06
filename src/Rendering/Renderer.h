@@ -6,6 +6,7 @@
 #pragma once
 #include "Core/Math/Matrix.h"
 #include "Core/Math/Vector.h"
+#include <cstdint>
 #include <string>
 #include <vector>
 

@@ -138,7 +138,8 @@ final class AbilitySlotView: UIView {
     private let readyRing = UIView()
 
     func configure(index: Int) {
-        self.index = index        surface.backgroundColor = Theme.panel
+        self.index = index
+        surface.backgroundColor = Theme.panel
         Theme.decorate(surface, cornerRadius: 8)
         addSubview(surface)
 
@@ -185,6 +186,8 @@ final class AbilitySlotView: UIView {
     private var wipeFraction: Float = 0
 
     override init(frame: CGRect) { super.init(frame: frame) }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func update(ability: AbilityState) {
         nameLabel.text = ability.name.uppercased()
