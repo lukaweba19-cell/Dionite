@@ -158,6 +158,18 @@ typedef struct DIItem {
     int32_t sockets;
 } DIItem;
 
+// -- Remote players (player hubs / presence) -------------------------------
+#define DI_MAX_REMOTE_PLAYERS 16
+
+typedef struct DIRemotePlayer {
+    uint64_t id;        // account-stable player id
+    char     name[24];
+    int32_t  classId;   // 0..4
+    int32_t  level;
+    float    x, y, z;   // interpolated render position (world space)
+    float    yaw;
+} DIRemotePlayer;
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

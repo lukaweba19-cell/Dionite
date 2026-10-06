@@ -311,6 +311,9 @@ void GameRuntime::generateLevel(int region, int stage, bool spire) {
     region = std::max(0, std::min(4, region));
     region_ = region;
     stage_ = std::max(0, stage);
+    // Other players belong to the previous map's presence room; the
+    // platform re-sends the roster for the room we are entering.
+    remotes_.clear();
     uint64_t h = campaignSeed_;
     h = h * 1000003ULL + (uint64_t)(region + 1) * 7919ULL + (uint64_t)stage * 104729ULL;
     if (spire) h ^= 0x9E3779B97F4A7C15ULL;
@@ -771,6 +774,7 @@ void GameRuntime::tick(float dt) {
 
     updateWorldEvents(dt);
     updateAudioState(dt);
+    updateRemotes(dt);
 
     if (dead_) {
         camera_.follow(player_.position(), dt);
@@ -1835,6 +1839,93 @@ void GameRuntime::devSetBossHealth(float fraction01) {
 }
 
 // ===========================================================================
+// Presence — other heroes sharing this world
+// ===========================================================================
+void GameRuntime::upsertRemotePlayer(uint64_t id, const char* name, int classId,
+                                     int level, const math::Vec3& pos) {
+    if (id == 0) return;
+    for (auto& r : remotes_) {
+        if (r.id != id) continue;
+        r.pos = pos;
+        r.classId = std::max(0, std::min(4, classId));
+        r.level = std::max(1, level);
+        if (name && *name) {
+            r.name = name;
+            if (r.name.size() > 23) r.name.resize(23);
+        }
+        r.stale = 0.f;
+        return;
+    }
+    if ((int)remotes_.size() >= DI_MAX_REMOTE_PLAYERS) return;
+    RemotePlayer r;
+    r.id = id;
+    r.name = name ? name : "";
+    if (r.name.size() > 23) r.name.resize(23);
+    r.classId = std::max(0, std::min(4, classId));
+    r.level = std::max(1, level);
+    r.pos = pos;
+    r.renderPos = pos;
+    r.stale = 0.f;
+    remotes_.push_back(r);
+    // A new soul arriving nearby earns an ethereal notice.
+    if ((pos - player_.position()).length() < 30.f)
+        postSound(audio::Sound::GhostSpawn, pos, 0.5f, 1.f);
+}
+
+void GameRuntime::removeRemotePlayer(uint64_t id) {
+    remotes_.erase(std::remove_if(remotes_.begin(), remotes_.end(),
+                                  [id](const RemotePlayer& r) { return r.id == id; }),
+                   remotes_.end());
+}
+
+void GameRuntime::clearRemotePlayers() {
+    remotes_.clear();
+}
+
+void GameRuntime::updateRemotes(float dt) {
+    for (auto& r : remotes_) {
+        r.stale += dt;
+        // Glide toward the last authoritative position at hero running speed.
+        math::Vec3 d = r.pos - r.renderPos;
+        d.y = 0.f;
+        const float dist = d.length();
+        if (dist > 0.02f) {
+            const float step = 7.5f * dt;
+            if (dist <= step) {
+                r.renderPos = r.pos;
+            } else {
+                r.renderPos += d.normalized() * step;
+                r.yaw = std::atan2(d.x, d.z);
+            }
+        }
+    }
+    // Presence heartbeats keep players alive; silence beyond a few seconds
+    // means the peer disconnected.
+    remotes_.erase(std::remove_if(remotes_.begin(), remotes_.end(),
+                                  [](const RemotePlayer& r) { return r.stale > 8.f; }),
+                   remotes_.end());
+}
+
+int GameRuntime::fillRemotePlayers(DIRemotePlayer* out, int maxCount) const {
+    if (!out || maxCount <= 0) return 0;
+    int n = 0;
+    for (const auto& r : remotes_) {
+        if (n >= maxCount) break;
+        DIRemotePlayer& o = out[n++];
+        std::memset(&o, 0, sizeof(o));
+        o.id = r.id;
+        std::snprintf(o.name, sizeof(o.name), "%s", r.name.c_str());
+        o.classId = r.classId;
+        o.level = r.level;
+        o.x = r.renderPos.x;
+        o.y = r.renderPos.y;
+        o.z = r.renderPos.z;
+        o.yaw = r.yaw;
+    }
+    return n;
+}
+
+// ===========================================================================
 // Snapshots
 // ===========================================================================
 void GameRuntime::rebuildInstances() {
@@ -1936,6 +2027,20 @@ void GameRuntime::rebuildInstances() {
                                       1.6f, 3.0f, 1.6f, withAlpha(rgb(255, 214, 120), 120), 1.8f,
                                       DI_MESH_CYLINDER, DI_FLAG_UNLIT, time_ * 4.f));
         }
+    }
+
+    // ---- remote players (player hubs / presence) -------------------------
+    for (const auto& r : remotes_) {
+        const uint32_t cls = kClassColor[std::max(0, std::min(4, r.classId))];
+        instAdd_.push_back(mkInst(r.renderPos.x, 0.04f, r.renderPos.z, time_,
+                                  2.2f, 1.f, 2.2f, withAlpha(cls, 70), 1.4f,
+                                  DI_MESH_QUAD, DI_FLAG_UNLIT, time_ * 2.f));
+        instOpaque_.push_back(mkInst(r.renderPos.x, 0.f, r.renderPos.z, r.yaw,
+                                     0.9f, 1.15f, 0.9f, shade(cls, 0.92f), 0.12f,
+                                     DI_MESH_CAPSULE, 0, time_ * 2.f));
+        instOpaque_.push_back(mkInst(r.renderPos.x, 1.14f, r.renderPos.z, r.yaw,
+                                     0.44f, 0.44f, 0.44f, rgb(232, 208, 184), 0.06f,
+                                     DI_MESH_SPHERE, 0, time_ * 2.f));
     }
 
     // ---- pickups ----------------------------------------------------------

@@ -83,6 +83,17 @@ public:
     /// devices. Empty when no session has booted.
     std::string saveJson() const;
 
+    // -- Presence (player hubs) --------------------------------------------
+    /// Feed a remote player snapshot received from the platform's presence
+    /// channel (WebSocket). Presentation-only: remotes never affect combat,
+    /// loot or quests. Positions glide toward the latest authoritative one
+    /// and players expire a few seconds after their updates stop.
+    void upsertRemotePlayer(uint64_t id, const char* name, int classId, int level,
+                            const math::Vec3& pos);
+    void removeRemotePlayer(uint64_t id);
+    void clearRemotePlayers();
+    int  fillRemotePlayers(DIRemotePlayer* out, int maxCount) const;
+
     // -- Read-only status (exposed through the platform bridge) ------------
     int   skillPoints() const { return skillPoints_; }
     int   spireFloorBest() const { return spireFloorBest_; }
@@ -197,6 +208,20 @@ private:
     bool loadSave();
     void writeSave();
     std::string buildSaveJson(bool pretty) const;
+
+    // -- Presence -----------------------------------------------------------
+    struct RemotePlayer {
+        uint64_t id = 0;
+        std::string name;
+        int classId = 0;
+        int level = 1;
+        math::Vec3 pos;        // latest authoritative position
+        math::Vec3 renderPos;  // smoothed position used for drawing
+        float yaw = 0.f;
+        float stale = 0.f;     // seconds since the last update
+    };
+    std::vector<RemotePlayer> remotes_;
+    void updateRemotes(float dt);
 
     // -- Campaign / meta state ---------------------------------------------
     std::string saveDir_;
