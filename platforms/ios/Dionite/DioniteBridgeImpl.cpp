@@ -20,6 +20,7 @@ using dionite::game::GameRuntime;
 namespace {
 
 std::unique_ptr<GameRuntime> g_rt;
+std::string g_saveJson;
 float g_viewProj[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 float g_vectors[12] = {0};
 float g_factors[6] = {0};
@@ -283,6 +284,15 @@ int32_t dionite_save_exists(const char* saveDir) {
     p += "dionite_save.json";
     std::ifstream in(p, std::ios::binary);
     return in.good() ? 1 : 0;
+}
+
+const char* dionite_save_json(void) {
+    g_saveJson = g_rt ? g_rt->saveJson() : std::string();
+    return g_saveJson.c_str();
+}
+
+int32_t dionite_save_json_length(void) {
+    return (int32_t)g_saveJson.size();
 }
 
 void dionite_dev_unlock_all(void) {

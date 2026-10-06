@@ -26,6 +26,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidEnterBackground(_ application: UIApplication) {
         DioniteBridge.shared.saveNow()
+        GameService.shared.pushCurrentSave()
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {

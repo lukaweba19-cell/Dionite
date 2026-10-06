@@ -80,7 +80,7 @@ See [`docs/architecture.md`](docs/architecture.md) for a full module map.
 See [`docs/build-instructions.md`](docs/build-instructions.md).
 
 ```bash
-# Campaign verifier — 81 checks over the full game loop (any OS, just g++)
+# Campaign verifier — 83 checks over the full game loop (any OS, just g++)
 g++ -std=c++17 -O1 -Isrc -Isrc/external \
   src/platforms/desktop/verify_campaign.cpp src/Game/GameRuntime.cpp \
   src/Combat/Weapons/WeaponBase.cpp src/Loot/Items/ItemBase.cpp \

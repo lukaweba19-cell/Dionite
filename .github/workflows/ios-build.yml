@@ -73,7 +73,7 @@ jobs:
           if [ "$failed" -ne 0 ]; then exit 1; fi
           echo "OK: clang static analyzer clean on $count translation units"
 
-      - name: Campaign verifier (81 checks over the full game loop)
+      - name: Campaign verifier (83 checks over the full game loop)
         run: |
           set -eu
           g++ -std=c++17 -O1 -Isrc -Isrc/external \

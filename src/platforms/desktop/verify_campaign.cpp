@@ -23,6 +23,8 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -320,6 +322,22 @@ int main() {
     check(std::string(hud2.className) == savedClass, "save/load restores the class");
     checkf(rt2.inventoryCount() == rt.inventoryCount(),
            "save/load restores %d inventory items", rt2.inventoryCount());
+
+    // Cloud upload path: the host serialises the live save through saveJson()
+    // and PUTs it at /api/save.
+    const std::string blob = rt.saveJson();
+    check(!blob.empty(), "saveJson produces a non-empty blob");
+    bool blobOk = false;
+    try {
+        const auto parsed = nlohmann::json::parse(blob);
+        blobOk = parsed.value("version", -1) == (int)GameRuntime::kVersion &&
+                 parsed.contains("inventory") && parsed.contains("quests") &&
+                 parsed.contains("playSeconds");
+    } catch (...) {
+        blobOk = false;
+    }
+    check(blobOk, "saveJson parses and carries the current schema");
+
     rt2.shutdown();
     rt.shutdown();
 

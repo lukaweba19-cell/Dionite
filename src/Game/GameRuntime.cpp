@@ -1768,11 +1768,11 @@ void GameRuntime::startSpire() {
     spireMode_ = true;
     spireRun_ = spire_.startRun(1);
     spireFloor_ = spireRun_.floor;
-    static const char* kBiomes[5] = {
-        "verdant_wilds", "ashen_wastes", "frozen_spire", "sunken_crypts", "sky_citadel"
-    };
+    // Map the run's biome string through kRegions ids — not a hand-copied
+    // list, whose order disagreed with kRegions (frozen_spire and
+    // sunken_crypts were swapped).
     for (int i = 0; i < 5; ++i)
-        if (spireRun_.biome == kBiomes[i]) { region_ = i; break; }
+        if (spireRun_.biome == kRegions[i].id) { region_ = i; break; }
     stage_ = spireFloor_;
     generateLevel(region_, spireFloor_, true);
     dead_ = false;
@@ -2307,8 +2307,7 @@ bool GameRuntime::loadSave() {
     }
 }
 
-void GameRuntime::writeSave() {
-    if (saveDir_.empty()) return;
+std::string GameRuntime::buildSaveJson(bool pretty) const {
     json j;
     j["version"] = kVersion;
     j["classId"] = classId_;
@@ -2342,9 +2341,18 @@ void GameRuntime::writeSave() {
         qs[q.id] = { { "p", q.progress }, { "d", q.done } };
     j["quests"] = qs;
 
+    return pretty ? j.dump(2) : j.dump();
+}
+
+void GameRuntime::writeSave() {
+    if (saveDir_.empty()) return;
     std::ofstream out(savePath(), std::ios::binary | std::ios::trunc);
     if (!out) return;
-    out << j.dump(2);
+    out << buildSaveJson(true);
+}
+
+std::string GameRuntime::saveJson() const {
+    return buildSaveJson(false);
 }
 
 } // namespace dionite::game

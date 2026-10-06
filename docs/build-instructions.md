@@ -28,14 +28,14 @@ files="$files platforms/ios/Dionite/DioniteBridgeImpl.cpp"
 g++ -std=c++17 -Wall -Wextra -Wno-missing-field-initializers -Werror \
   -Isrc -Isrc/external -Iplatforms/ios/Dionite -fsyntax-only $files
 
-# Campaign verifier — 81 checks over the full game loop (boot, 20 campaign
+# Campaign verifier — 83 checks over the full game loop (boot, 20 campaign
 # floors, bosses, loot, quests, fast travel, Infinity Spire, save/load):
 g++ -std=c++17 -O1 -Isrc -Isrc/external \
   src/platforms/desktop/verify_campaign.cpp src/Game/GameRuntime.cpp \
   src/Combat/Weapons/WeaponBase.cpp src/Loot/Items/ItemBase.cpp \
   src/Audio/AudioManager.cpp \
   src/Progression/Skills/SkillLibrary.*.cpp -o dionite_verify
-./dionite_verify        # "81 checks, 0 failures", exit 0
+./dionite_verify        # "83 checks, 0 failures", exit 0
 
 # Optional static + leak analysis (what CI enforces):
 g++ -std=c++17 -fanalyzer -Wall -Wextra -Werror \

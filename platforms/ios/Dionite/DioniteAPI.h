@@ -111,6 +111,12 @@ int32_t dionite_campaign_complete(void);
 int32_t dionite_has_save(void);        // 1 when this session resumed a save
 int32_t dionite_save_exists(const char* saveDir);
 
+// Serialises the live save state as compact JSON for cloud upload (PUT
+// /api/save). The pointer stays valid until the next Dionite call; read
+// dionite_save_json_length() bytes from it. Returns "" when nothing booted.
+const char* dionite_save_json(void);
+int32_t dionite_save_json_length(void);
+
 // See GameRuntime::devUnlockAllRegions / devSetBossHealth.
 void dionite_dev_unlock_all(void);
 void dionite_dev_set_boss_health(float fraction01);

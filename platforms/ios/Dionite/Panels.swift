@@ -1,9 +1,10 @@
 // ============================================================================
-// Dionite — In-game menu overlay (Pack / Realms / Spire).
+// Dionite — In-game menu overlay (Pack / Realms / Spire / Audio).
 //
-// Presenting the three "there is more to do here" surfaces in one place keeps
+// Presenting the "there is more to do here" surfaces in one place keeps
 // the touch HUD uncluttered while still exposing inventory management, fast
-// travel across unlocked biomes, and the Infinity Spire endgame.
+// travel across unlocked biomes, the Infinity Spire endgame with world
+// rankings, and the audio mixer.
 // ============================================================================
 import UIKit
 
@@ -171,6 +172,37 @@ final class GameMenuView: UIView {
         button.heightAnchor.constraint(equalToConstant: 52).isActive = true
         button.addTarget(self, action: #selector(spireTapped), for: .touchUpInside)
         content.addArrangedSubview(button)
+
+        content.addArrangedSubview(caption("— WORLD RANKINGS —"))
+        if let rows = GameService.shared.cachedLeaderboard, !rows.isEmpty {
+            for (index, entry) in Array(rows.prefix(8)).enumerated() {
+                content.addArrangedSubview(caption(rankingLine(index: index, entry: entry)))
+            }
+        } else if let error = GameService.shared.leaderboardError {
+            content.addArrangedSubview(caption(error))
+        } else {
+            content.addArrangedSubview(caption("Top runs across every player on the server."))
+        }
+        content.addArrangedSubview(rankButton())
+    }
+
+    private func rankingLine(index: Int, entry: GameService.LeaderboardEntry) -> String {
+        let minutes = Int(entry.seconds) / 60
+        let seconds = Int(entry.seconds) % 60
+        return "\(index + 1).  \(entry.name)   floor \(entry.floor)   "
+            + "\(entry.score) pts   \(minutes):\(String(format: "%02d", seconds))"
+    }
+
+    private func rankButton() -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle("REFRESH RANKINGS", for: .normal)
+        button.titleLabel?.font = Theme.display(14)
+        button.setTitleColor(Theme.void, for: .normal)
+        button.backgroundColor = Theme.gold
+        Theme.decorate(button, cornerRadius: 6)
+        button.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        button.addTarget(self, action: #selector(rankTapped), for: .touchUpInside)
+        return button
     }
 
     private func caption(_ text: String) -> UILabel {
@@ -269,6 +301,13 @@ final class GameMenuView: UIView {
     }
     @objc private func spireTapped() {
         if currentHud.spireFloor != 0 { onExitSpire?() } else { onStartSpire?() }
+    }
+    @objc private func rankTapped() {
+        Task { [weak self] in
+            await GameService.shared.refreshLeaderboard()
+            guard let self = self else { return }
+            self.reload(hud: self.currentHud, spireBest: self.currentSpireBest)
+        }
     }
 
     private var currentHud = DIHud()

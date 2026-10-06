@@ -78,6 +78,11 @@ public:
     audio::AudioManager& audio() { return audio_; }
     const audio::AudioManager& audio() const { return audio_; }
 
+    /// Live save state as compact JSON — the iOS host uploads this to the
+    /// Dionite server so progress follows the player's account between
+    /// devices. Empty when no session has booted.
+    std::string saveJson() const;
+
     // -- Read-only status (exposed through the platform bridge) ------------
     int   skillPoints() const { return skillPoints_; }
     int   spireFloorBest() const { return spireFloorBest_; }
@@ -191,6 +196,7 @@ private:
     std::string savePath() const;
     bool loadSave();
     void writeSave();
+    std::string buildSaveJson(bool pretty) const;
 
     // -- Campaign / meta state ---------------------------------------------
     std::string saveDir_;

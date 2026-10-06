@@ -79,7 +79,7 @@ add_executable(DioniteDesktop src/platforms/desktop/main.cpp)
 target_link_libraries(DioniteDesktop PRIVATE DioniteGame)
 
 # -----------------------------------------------------------------------------
-# DioniteVerify — headless campaign verifier (81 checks over the full loop:
+# DioniteVerify — headless campaign verifier (83 checks over the full loop:
 # boot, 20 campaign floors, fast travel, spire, save/load round-trip).
 # Run:  ./DioniteVerify   (nonzero exit code = a check failed)
 # -----------------------------------------------------------------------------
