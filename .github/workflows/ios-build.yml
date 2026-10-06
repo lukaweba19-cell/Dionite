@@ -3,7 +3,7 @@
 #
 # Jobs (parallel):
 #   cpp-checks  — g++ -Werror over every TU, clang static analysis,
-#                 the 81-check campaign verifier, and a valgrind leak check
+#                 the 83-check campaign verifier, and a valgrind leak check
 #                 over a full campaign run.          (ubuntu-latest)
 #   swiftlint   — swiftlint lint --strict over the Swift/Metal host.
 #                                                  (macos-14, preinstalled)
@@ -113,15 +113,37 @@ jobs:
   build-ipa:
     name: Build unsigned Dionite.ipa
     runs-on: macos-14
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+        run: |
+          set -eu
+          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen --version
 
-      - name: Generate project and package .ipa
-        run: sh ./scripts/package_ipa.sh
+      # Generation is split from packaging so a hang fails fast (5 min) with a
+      # precise log line instead of burning the whole job timeout. An earlier
+      # run stalled for a full hour inside `xcodegen generate`.
+      - name: Validate project spec
+        timeout-minutes: 3
+        run: |
+          set -eu
+          xcodegen dump --type json > /tmp/spec-dump.json
+          echo "OK: spec parsed ($(wc -c < /tmp/spec-dump.json) bytes of JSON)"
+
+      - name: Generate Xcode project
+        timeout-minutes: 5
+        run: |
+          set -eu
+          xcodegen generate
+          test -f Dionite.xcodeproj/project.pbxproj
+          echo "OK: Dionite.xcodeproj generated"
+
+      - name: Package unsigned .ipa
+        timeout-minutes: 25
+        run: SKIP_GENERATE=1 sh ./scripts/package_ipa.sh
 
       - name: Upload xcodebuild log (on failure)
         if: failure()

@@ -49,7 +49,10 @@ targets:
           - "PostFXShaders.metal"
       - path: src
         excludes:
-          - "platforms/**"
+          # `platforms/*` (not `**`): a directory match is expanded to all of
+          # its children by XcodeGen, so this excludes src/platforms/**
+          # without exercising globstar expansion.
+          - "platforms/*"
       - path: assets
         group: assets
         buildPhase: resources

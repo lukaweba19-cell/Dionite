@@ -19,7 +19,11 @@ if ! command -v xcodegen >/dev/null 2>&1; then
 fi
 
 echo "==> Generating ${PROJECT}"
-xcodegen generate
+if [ "${SKIP_GENERATE:-0}" = "1" ]; then
+    echo "    (skipped — project already generated)"
+else
+    xcodegen generate
+fi
 
 echo "==> Building ${SCHEME} (${CONFIGURATION}, generic iOS device, unsigned)"
 rm -rf "${DERIVED}"
