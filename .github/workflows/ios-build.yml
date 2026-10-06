@@ -134,16 +134,57 @@ jobs:
           echo "OK: spec parsed ($(wc -c < /tmp/spec-dump.json) bytes of JSON)"
 
       - name: Generate Xcode project
-        timeout-minutes: 5
+        timeout-minutes: 6
         run: |
           set -eu
-          xcodegen generate
+          # Watchdog: generation normally finishes in under a second. If it
+          # is still running after 90s, capture a stack sample so the exact
+          # hang site is in the log/artifact instead of guessing.
+          xcodegen generate &
+          XGPID=$!
+          for _ in $(seq 1 90); do
+            kill -0 "$XGPID" 2>/dev/null || break
+            sleep 1
+          done
+          if kill -0 "$XGPID" 2>/dev/null; then
+            echo "xcodegen still running after 90s — capturing stack sample"
+            sample "$XGPID" 5 -file /tmp/xcodegen-sample.txt 2>&1 | tail -5 || true
+            ps -M -p "$XGPID" > /tmp/xcodegen-threads.txt 2>/dev/null || true
+            for _ in $(seq 1 45); do
+              kill -0 "$XGPID" 2>/dev/null || break
+              sleep 1
+            done
+          fi
+          if kill -0 "$XGPID" 2>/dev/null; then
+            echo "::error::xcodegen generate hung (see stack-sample artifact)"
+            kill -9 "$XGPID" 2>/dev/null || true
+            wait "$XGPID" 2>/dev/null || true
+            exit 1
+          fi
+          set +e
+          wait "$XGPID"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::xcodegen generate failed with status ${STATUS}"
+            exit "$STATUS"
+          fi
           test -f Dionite.xcodeproj/project.pbxproj
           echo "OK: Dionite.xcodeproj generated"
 
       - name: Package unsigned .ipa
         timeout-minutes: 25
         run: SKIP_GENERATE=1 sh ./scripts/package_ipa.sh
+
+      - name: Upload xcodegen hang diagnostics (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodegen-hang-diagnostics
+          path: |
+            /tmp/xcodegen-sample.txt
+            /tmp/xcodegen-threads.txt
+          if-no-files-found: ignore
 
       - name: Upload xcodebuild log (on failure)
         if: failure()
