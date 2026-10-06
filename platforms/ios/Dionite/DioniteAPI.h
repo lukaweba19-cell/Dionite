@@ -115,6 +115,41 @@ int32_t dionite_save_exists(const char* saveDir);
 void dionite_dev_unlock_all(void);
 void dionite_dev_set_boss_health(float fraction01);
 
+// -- Audio ------------------------------------------------------------------
+// The core queues sound cues during dionite_tick(); the platform synthesizer
+// drains them once per frame. Poll from the main thread only (the queue is
+// not thread-safe) and hand the events to your audio render thread through
+// your own lock-free buffer.
+// Returns 1 when an event was written, 0 when the queue is empty.
+int32_t dionite_audio_poll(int32_t* outId, float* outGain,
+                           float* outPitch, float* outPan);
+int32_t dionite_audio_pending(void);   // events waiting to be drained
+
+// Score state machine for the generative music engine. Raw values are the
+// dionite::audio::MusicMood / Ambient enum ints (see Audio/AudioManager.h):
+// mood 0 silent, 1 hub, 2 explore, 3 combat, 4 boss, 5 death, 6 spire, 7 victory;
+// ambient 0 none, 1 forest, 2 ash, 3 crypt, 4 ice, 5 sky.
+int32_t dionite_audio_music(void);
+int32_t dionite_audio_ambient(void);
+int32_t dionite_audio_in_combat(void);
+
+// Effective mixer gains (0..1, master/bus already combined, 0 when muted).
+float dionite_audio_sfx_gain(void);
+float dionite_audio_music_gain(void);
+
+// Player-facing mixer control (settings UI). Persisted with the save.
+void dionite_audio_set_master(float v);
+void dionite_audio_set_music_volume(float v);
+void dionite_audio_set_sfx_volume(float v);
+void dionite_audio_set_muted(int32_t muted);
+
+// Current mixer state, for reflecting the settings UI (saved values may
+// differ from the defaults after a load).
+float   dionite_audio_master(void);
+float   dionite_audio_music_volume(void);
+float   dionite_audio_sfx_volume(void);
+int32_t dionite_audio_is_muted(void);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

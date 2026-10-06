@@ -20,12 +20,12 @@ final class GameMenuView: UIView {
     private let titleLabel = UILabel()
     private let closeButton = UIButton(type: .system)
     private let tabBar = UIStackView()
-    private let tabButtons: [UIButton] = (0..<3).map { _ in UIButton(type: .system) }
+    private let tabButtons: [UIButton] = (0..<4).map { _ in UIButton(type: .system) }
     private let scrollView = UIScrollView()
     private let content = UIStackView()
     private var activeTab = 0
 
-    private let tabTitles = ["PACK", "REALMS", "SPIRE"]
+    private let tabTitles = ["PACK", "REALMS", "SPIRE", "AUDIO"]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -111,6 +111,7 @@ final class GameMenuView: UIView {
         switch activeTab {
         case 1: buildRealms(hud: hud)
         case 2: buildSpire(hud: hud, best: spireBest)
+        case 3: buildAudio()
         default: buildPack()
         }
     }
@@ -181,6 +182,58 @@ final class GameMenuView: UIView {
         return label
     }
 
+    private func buildAudio() {
+        content.addArrangedSubview(caption("Every sound in Dionite is synthesised live — "
+                                            + "no audio files ship with this build. "
+                                            + "Tune the mix to taste; settings ride with your save."))
+
+        let mute = UIButton(type: .system)
+        let state = AudioEngine.shared.mixerState()
+        mute.setTitle(state.muted ? "SOUND MUTED — TAP TO UNMUTE" : "SOUND ON — TAP TO MUTE",
+                      for: .normal)
+        mute.titleLabel?.font = Theme.display(15)
+        mute.setTitleColor(state.muted ? Theme.danger : Theme.goldBright, for: .normal)
+        mute.backgroundColor = Theme.panel
+        Theme.decorate(mute, cornerRadius: 6)
+        mute.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        mute.addTarget(self, action: #selector(muteTapped), for: .touchUpInside)
+        content.addArrangedSubview(mute)
+
+        content.addArrangedSubview(sliderRow(label: "MASTER", value: state.master, tag: 0))
+        content.addArrangedSubview(sliderRow(label: "MUSIC", value: state.music, tag: 1))
+        content.addArrangedSubview(sliderRow(label: "EFFECTS", value: state.sfx, tag: 2))
+        content.addArrangedSubview(caption("Music and ambience follow the fight: hub, explore, "
+                                            + "combat, boss, spire and death each carry their "
+                                            + "own generated score."))
+    }
+
+    private func sliderRow(label: String, value: Float, tag: Int) -> UIStackView {
+        let row = UIStackView()
+        row.axis = .horizontal
+        row.spacing = 14
+        row.alignment = .center
+
+        let name = UILabel()
+        name.text = label
+        name.font = Theme.display(13)
+        name.textColor = Theme.textPrimary
+        name.widthAnchor.constraint(equalToConstant: 92).isActive = true
+
+        let slider = UISlider()
+        slider.minimumValue = 0
+        slider.maximumValue = 1
+        slider.value = max(0, min(1, value))
+        slider.minimumTrackTintColor = Theme.gold
+        slider.maximumTrackTintColor = Theme.stone
+        slider.tag = tag
+        slider.addTarget(self, action: #selector(sliderChanged(_:)), for: .valueChanged)
+
+        row.addArrangedSubview(name)
+        row.addArrangedSubview(slider)
+        row.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        return row
+    }
+
     // MARK: Actions
 
     private func highlightTab() {
@@ -199,6 +252,21 @@ final class GameMenuView: UIView {
 
     @objc private func closeTapped() { onClose?() }
     @objc private func saveTapped() { onSave?() }
+    @objc private func muteTapped() {
+        let muted = AudioEngine.shared.mixerState().muted
+        AudioEngine.shared.setMuted(!muted)
+        reload(hud: currentHud, spireBest: currentSpireBest)
+    }
+    @objc private func sliderChanged(_ sender: UISlider) {
+        switch sender.tag {
+        case 1:
+            AudioEngine.shared.setMusicVolume(sender.value)
+        case 2:
+            AudioEngine.shared.setSfxVolume(sender.value)
+        default:
+            AudioEngine.shared.setMaster(sender.value)
+        }
+    }
     @objc private func spireTapped() {
         if currentHud.spireFloor != 0 { onExitSpire?() } else { onStartSpire?() }
     }

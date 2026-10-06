@@ -292,4 +292,50 @@ void dionite_dev_set_boss_health(float fraction01) {
     if (g_rt) g_rt->devSetBossHealth(fraction01);
 }
 
+// -- Audio ------------------------------------------------------------------
+int32_t dionite_audio_poll(int32_t* outId, float* outGain,
+                           float* outPitch, float* outPan) {
+    if (!g_rt) return 0;
+    dionite::audio::AudioEvent e;
+    if (!g_rt->audio().poll(e)) return 0;
+    if (outId)    *outId    = (int32_t)e.id;
+    if (outGain)  *outGain  = e.gain;
+    if (outPitch) *outPitch = e.pitch;
+    if (outPan)   *outPan   = e.pan;
+    return 1;
+}
+
+int32_t dionite_audio_pending(void) {
+    return g_rt ? (int32_t)g_rt->audio().pending() : 0;
+}
+
+int32_t dionite_audio_music(void) {
+    return g_rt ? (int32_t)g_rt->audio().music() : 0;
+}
+int32_t dionite_audio_ambient(void) {
+    return g_rt ? (int32_t)g_rt->audio().ambient() : 0;
+}
+int32_t dionite_audio_in_combat(void) {
+    return (g_rt && g_rt->audio().inCombat()) ? 1 : 0;
+}
+
+float dionite_audio_sfx_gain(void) {
+    return g_rt ? g_rt->audio().sfxGain() : 0.f;
+}
+float dionite_audio_music_gain(void) {
+    return g_rt ? g_rt->audio().musicGain() : 0.f;
+}
+
+void dionite_audio_set_master(float v)       { if (g_rt) g_rt->audio().setMaster(v); }
+void dionite_audio_set_music_volume(float v) { if (g_rt) g_rt->audio().setMusicVolume(v); }
+void dionite_audio_set_sfx_volume(float v)   { if (g_rt) g_rt->audio().setSfxVolume(v); }
+void dionite_audio_set_muted(int32_t muted)  { if (g_rt) g_rt->audio().setMuted(muted != 0); }
+
+float dionite_audio_master(void)       { return g_rt ? g_rt->audio().master() : 0.9f; }
+float dionite_audio_music_volume(void) { return g_rt ? g_rt->audio().musicVolume() : 0.7f; }
+float dionite_audio_sfx_volume(void)   { return g_rt ? g_rt->audio().sfxVolume() : 1.f; }
+int32_t dionite_audio_is_muted(void) {
+    return (g_rt && g_rt->audio().muted()) ? 1 : 0;
+}
+
 } // extern "C"

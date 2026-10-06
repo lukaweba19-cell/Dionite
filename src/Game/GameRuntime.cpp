@@ -2266,6 +2266,13 @@ bool GameRuntime::loadSave() {
         equippedIdx_   = j.value("equipped", -1);
         campaignComplete_ = j.value("campaignComplete", false);
 
+        // Player mixer settings travel with the save (AudioManager survives
+        // boot's reset(), which only clears queue/score state).
+        audio_.setMaster((float)j.value("audioMaster", 0.9));
+        audio_.setMusicVolume((float)j.value("audioMusic", 0.7));
+        audio_.setSfxVolume((float)j.value("audioSfx", 1.0));
+        audio_.setMuted(j.value("audioMuted", false));
+
         inventory_.clear();
         if (j.contains("inventory") && j["inventory"].is_array()) {
             for (const auto& e : j["inventory"]) {
@@ -2319,6 +2326,10 @@ void GameRuntime::writeSave() {
     j["playSeconds"] = playSeconds_;
     j["equipped"] = equippedIdx_;
     j["campaignComplete"] = campaignComplete_;
+    j["audioMaster"] = audio_.master();
+    j["audioMusic"] = audio_.musicVolume();
+    j["audioSfx"] = audio_.sfxVolume();
+    j["audioMuted"] = audio_.muted();
 
     json inv = json::array();
     for (const auto& it : inventory_)

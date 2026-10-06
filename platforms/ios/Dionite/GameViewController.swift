@@ -16,6 +16,7 @@ final class GameViewController: UIViewController, MTKViewDelegate {
     private var renderer: GameRenderer?
 
     private let bridge = DioniteBridge.shared
+    private let audio = AudioEngine.shared
     private let hud = HUDView(frame: .zero)
     private let menu = GameMenuView(frame: .zero)
     private var moveStick: VirtualJoystick!
@@ -51,9 +52,31 @@ final class GameViewController: UIViewController, MTKViewDelegate {
         setupControls()
         setupGestures()
         GamepadBridge.shared.start()
+        audio.start()
+
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(enterBackground),
+                                               name: UIApplication.didEnterBackgroundNotification,
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(enterForeground),
+                                               name: UIApplication.willEnterForegroundNotification,
+                                               object: nil)
 
         lastFrameTime = CACurrentMediaTime()
         beginSession()
+    }
+
+    deinit {
+        audio.stopEngine()
+    }
+
+    @objc private func enterBackground() {
+        audio.pauseEngine()
+    }
+
+    @objc private func enterForeground() {
+        audio.resumeEngine()
     }
 
     override func viewDidLayoutSubviews() {
@@ -189,6 +212,7 @@ final class GameViewController: UIViewController, MTKViewDelegate {
         if booted {
             GamepadBridge.shared.pumpToCore()
             bridge.tick(delta: delta)
+            audio.pumpFromCore()
         }
 
         guard let drawable = view.currentDrawable,
