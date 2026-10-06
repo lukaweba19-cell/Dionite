@@ -231,7 +231,7 @@ final class GameMenuView: UIView {
         mute.addTarget(self, action: #selector(muteTapped), for: .touchUpInside)
         content.addArrangedSubview(mute)
 
-        content.addArrangedSubview(sliderRow(label: "MASTER", value: state.master, tag: 0))
+        content.addArrangedSubview(sliderRow(label: "MASTER", value: state.overall, tag: 0))
         content.addArrangedSubview(sliderRow(label: "MUSIC", value: state.music, tag: 1))
         content.addArrangedSubview(sliderRow(label: "EFFECTS", value: state.sfx, tag: 2))
         content.addArrangedSubview(caption("Music and ambience follow the fight: hub, explore, "
@@ -296,7 +296,7 @@ final class GameMenuView: UIView {
         case 2:
             AudioEngine.shared.setSfxVolume(sender.value)
         default:
-            AudioEngine.shared.setMaster(sender.value)
+            AudioEngine.shared.setOverallVolume(sender.value)
         }
     }
     @objc private func spireTapped() {

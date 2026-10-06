@@ -274,20 +274,20 @@ final class AudioEngine {
     // MARK: - Mixer (settings UI)
 
     struct MixerState {
-        var master: Float
+        var overall: Float
         var music: Float
         var sfx: Float
         var muted: Bool
     }
 
-    func setMaster(_ value: Float) { dionite_audio_set_master(value) }
+    func setOverallVolume(_ value: Float) { dionite_audio_set_master(value) }
     func setMusicVolume(_ value: Float) { dionite_audio_set_music_volume(value) }
     func setSfxVolume(_ value: Float) { dionite_audio_set_sfx_volume(value) }
     func setMuted(_ muted: Bool) { dionite_audio_set_muted(muted ? 1 : 0) }
 
     /// Reads the core's mixer (reflected after a save restores it).
     func mixerState() -> MixerState {
-        return MixerState(master: dionite_audio_master(),
+        return MixerState(overall: dionite_audio_master(),
                           music: dionite_audio_music_volume(),
                           sfx: dionite_audio_sfx_volume(),
                           muted: dionite_audio_is_muted() != 0)

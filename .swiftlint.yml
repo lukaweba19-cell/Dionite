@@ -41,7 +41,6 @@ disabled_rules:
 opt_in_rules:
   - empty_count
   - empty_string
-  - dictionary_literal_duplicate_keys
   - unused_setter_value
 
 analyzer_rules:
