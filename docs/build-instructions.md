@@ -33,6 +33,7 @@ g++ -std=c++17 -Wall -Wextra -Wno-missing-field-initializers -Werror \
 g++ -std=c++17 -O1 -Isrc -Isrc/external \
   src/platforms/desktop/verify_campaign.cpp src/Game/GameRuntime.cpp \
   src/Combat/Weapons/WeaponBase.cpp src/Loot/Items/ItemBase.cpp \
+  src/Audio/AudioManager.cpp \
   src/Progression/Skills/SkillLibrary.*.cpp -o dionite_verify
 ./dionite_verify        # "81 checks, 0 failures", exit 0
 

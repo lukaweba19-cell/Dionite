@@ -174,6 +174,16 @@ void copyStr(char* dst, size_t n, const std::string& s) {
     std::snprintf(dst, n, "%s", s.c_str());
 }
 
+audio::Ambient ambientForRegion(int region) {
+    switch (std::max(0, std::min(4, region))) {
+        case 0:  return audio::Ambient::Forest;
+        case 1:  return audio::Ambient::Ash;
+        case 2:  return audio::Ambient::Crypt;
+        case 3:  return audio::Ambient::Ice;
+        default: return audio::Ambient::Sky;
+    }
+}
+
 } // namespace
 
 // ===========================================================================
@@ -199,6 +209,8 @@ void GameRuntime::boot(const std::string& saveDir, int classId, uint64_t seed, b
     }
 
     loadedSave_ = restored;
+    audio_.reset();
+    audio_.setAmbient(ambientForRegion(region_));
     setupQuests(region_);
     generateLevel(region_, stage_, false);
 
@@ -654,6 +666,7 @@ void GameRuntime::updateQuests(const std::string& what, int delta) {
         gold_ += q.rewardGold;
         toast(DI_EVENT_QUEST, "Quest complete — %s  (+%d gold)", q.title.c_str(), q.rewardGold);
         awardXp(q.rewardXp);
+        postSound(audio::Sound::QuestComplete, player_.position(), 0.85f, 1.f);
         saveDirtyTimer_ = 6.f;
     }
 }
@@ -665,6 +678,7 @@ void GameRuntime::awardXp(int amount) {
     if (amount <= 0) return;
     if (!levelSys_.addXp(amount, level_, xp_, skillPoints_)) return;
     toast(DI_EVENT_LEVELUP, "Level %d reached — a skill point is yours.", level_);
+    postSound(audio::Sound::LevelUp, player_.position(), 1.f, 1.f);
     buildLoadout();
     player_.stats().health = player_.stats().maxHealth;
     resource_.current = resource_.maximum;
@@ -756,6 +770,7 @@ void GameRuntime::tick(float dt) {
     }
 
     updateWorldEvents(dt);
+    updateAudioState(dt);
 
     if (dead_) {
         camera_.follow(player_.position(), dt);
@@ -853,6 +868,9 @@ void GameRuntime::updateMovement(float dt) {
     // ---- integrate + resolve against the tile grid -------------------------
     const math::Vec3 before = player_.position();
     player_.update(dt, in);
+    // A successful dash leaves dashTimer parked exactly at dashCooldown.
+    if (in.dashPressed && st.dashTimer >= st.dashCooldown - 1e-3f)
+        postSound(audio::Sound::Dash, player_.position(), 0.5f, rng_.rangeF(0.94f, 1.1f));
 
     math::Vec3 after = player_.position();
     after.y = 0.f;
@@ -902,6 +920,10 @@ math::Vec3 GameRuntime::snapWalkable(const math::Vec3& p) const {
 void GameRuntime::updateCombat(float dt) {
     weaponSys_.update(weapon_, dt);
 
+    if (weapon_.reloading && !prevReloading_)
+        postSound(audio::Sound::Reload, aimOrigin(), 0.5f, rng_.rangeF(0.95f, 1.08f));
+    prevReloading_ = weapon_.reloading;
+
     const bool fireEdge = inputFire_ && !prevFire_;
     prevFire_ = inputFire_;
 
@@ -930,6 +952,16 @@ void GameRuntime::updateCombat(float dt) {
             fx.flags = DI_FLAG_UNLIT;
             fx.additive = true;
             effects_.push_back(fx);
+
+            audio::Sound report = audio::Sound::GunShot;
+            switch (weapon_.kind) {
+                case combat::WeaponKind::Shotgun:
+                case combat::WeaponKind::Launcher: report = audio::Sound::GunShotHeavy; break;
+                case combat::WeaponKind::Staff:    report = audio::Sound::CastFire; break;
+                case combat::WeaponKind::Wand:     report = audio::Sound::CastFrost; break;
+                default: break;
+            }
+            postSound(report, aimOrigin(), 0.6f, rng_.rangeF(0.94f, 1.1f));
         }
     }
 
@@ -940,8 +972,14 @@ void GameRuntime::updateCombat(float dt) {
 
 bool GameRuntime::tryAbility(int slot) {
     if (slot < 0 || slot >= DI_MAX_ABILITIES || dead_) return false;
-    if (abilityCd_[slot] > 0.f) return false;
-    if (!loadoutMgr_.tryCast(loadout_, slot, resource_)) return false;
+    if (abilityCd_[slot] > 0.f) {
+        postSound(audio::Sound::UIError, player_.position(), 0.3f, 1.f);
+        return false;
+    }
+    if (!loadoutMgr_.tryCast(loadout_, slot, resource_)) {
+        postSound(audio::Sound::UIError, player_.position(), 0.35f, 1.08f);
+        return false;
+    }
 
     const auto& as = loadout_.active[slot];
     const auto* def = progression::SkillLibrary::instance().find(as.skillId);
@@ -1023,7 +1061,82 @@ bool GameRuntime::tryAbility(int slot) {
     effects_.push_back(fx);
 
     feedback_.shake(0.08f, def->category == progression::SkillCategory::Ultimate ? 3.5f : 1.4f);
+
+    // audio: pick the cue from category first, then class flavour.
+    audio::Sound cue;
+    if (def->category == progression::SkillCategory::Mobility || hasTag("dash"))
+        cue = audio::Sound::Dash;
+    else if (def->category == progression::SkillCategory::Ultimate)
+        cue = audio::Sound::Ultimate;
+    else if (def->category == progression::SkillCategory::Defensive)
+        cue = hasTag("heal") ? audio::Sound::Heal : audio::Sound::CastHoly;
+    else if (def->category == progression::SkillCategory::Utility)
+        cue = audio::Sound::CastShadow;
+    else {
+        switch (classId_) {
+            case 0:  cue = audio::Sound::CastHoly;   break;
+            case 1:  cue = audio::Sound::CastShadow; break;
+            case 2:  cue = audio::Sound::CastFire;   break;
+            case 3:  cue = audio::Sound::BowShot;    break;
+            default: cue = audio::Sound::CastShock;  break;
+        }
+    }
+    postSound(cue, pp,
+              def->category == progression::SkillCategory::Ultimate ? 1.f : 0.7f,
+              rng_.rangeF(0.95f, 1.07f));
     return true;
+}
+
+// ---------------------------------------------------------------------------
+void GameRuntime::postSound(audio::Sound id, const math::Vec3& at,
+                            float gain, float pitch) {
+    const math::Vec3 campos = camera_.position();
+    math::Vec3 to = at - campos;
+    const float dist = to.length();
+    // Inverse-ish falloff: full strength nearby, never fully silent so a
+    // far-off boss roar still reads as atmosphere.
+    const float fade = std::max(0.18f, std::min(1.f, 1.f - dist / 42.f));
+    float pan = 0.f;
+    if (dist > 0.5f) {
+        // Horizontal right vector derived from where the camera looks
+        // (camera -> player), then projected onto the sound direction.
+        math::Vec3 fwd = player_.position() - campos;
+        fwd.y = 0.f;
+        if (fwd.lengthSq() > 1e-4f && to.lengthSq() > 1e-6f) {
+            fwd = fwd.normalized();
+            const math::Vec3 right(-fwd.z, 0.f, fwd.x);
+            to.y = 0.f;
+            pan = to.normalized().dot(right);
+        }
+    }
+    audio_.post(id, gain * fade, pitch, std::max(-1.f, std::min(1.f, pan)));
+}
+
+void GameRuntime::updateAudioState(float dt) {
+    // Combat detection: any live enemy closing in keeps the music hot; the
+    // timer is the hysteresis so the score does not flap at the edge.
+    const math::Vec3 pp = player_.position();
+    bool threat = false;
+    for (const auto& en : enemies_) {
+        if (en.corpseTimer > 0.f || en.e.stats.hp <= 0.f) continue;
+        if ((en.e.position - pp).lengthSq() < 26.f * 26.f) { threat = true; break; }
+    }
+    if (threat || playerHurtFlash_ > 0.f) combatTimer_ = 4.f;
+    else if (combatTimer_ > 0.f) combatTimer_ = std::max(0.f, combatTimer_ - dt);
+    const bool inCombat = combatTimer_ > 0.f;
+    audio_.setInCombat(inCombat);
+    audio_.setAmbient(ambientForRegion(region_));
+
+    using audio::MusicMood;
+    MusicMood mood = MusicMood::Explore;
+    if (dead_)                 mood = MusicMood::Death;
+    else if (bossIndex_ >= 0 && (size_t)bossIndex_ < enemies_.size() &&
+             enemies_[(size_t)bossIndex_].e.stats.hp > 0.f &&
+             enemies_[(size_t)bossIndex_].e.stats.state != combat::AIState::Dead)
+                               mood = MusicMood::Boss;
+    else if (spireMode_)       mood = inCombat ? MusicMood::Combat : MusicMood::Spire;
+    else if (inCombat)         mood = MusicMood::Combat;
+    audio_.setMusic(mood);
 }
 
 // ---------------------------------------------------------------------------
@@ -1124,9 +1237,11 @@ void GameRuntime::updateBoss(float dtGame) {
             bossIntroShown_ = true;
             toast(DI_EVENT_BOSS, "%s, %s — the fight begins.", kRegions[region_].bossTitle,
                   boss_->name.c_str());
+            postSound(audio::Sound::BossRoar, en.e.position, 1.f, 0.85f);
             camera_.shake(0.7f, 3.f);
         } else if (boss_->phase == combat::BossPhase::Phase2) {
             toast(DI_EVENT_DANGER, "%s enrages!", boss_->name.c_str());
+            postSound(audio::Sound::BossRoar, en.e.position, 1.f, 1.14f);
             camera_.shake(0.6f, 4.f);
             bossAtkTimer_ = 1.2f;
         }
@@ -1249,6 +1364,7 @@ void GameRuntime::damagePlayer(float amount, const math::Vec3& from) {
     player_.takeDamage(dmg);
     noHitTimer_ = 0.f;
     playerHurtFlash_ = 0.35f;
+    postSound(audio::Sound::PlayerHurt, player_.position(), 0.85f, rng_.rangeF(0.95f, 1.12f));
     shakeAmount_ = std::min(1.f, shakeAmount_ + 0.55f);
     feedback_.shake(0.22f, 3.f);
     camera_.shake(0.22f, 2.4f);
@@ -1256,16 +1372,18 @@ void GameRuntime::damagePlayer(float amount, const math::Vec3& from) {
     if (player_.dead() && !dead_) {
         dead_ = true;
         player_.stats().health = 0.f;
+        postSound(audio::Sound::PlayerDeath, player_.position(), 1.f, 1.f);
         toast(DI_EVENT_DANGER, "You have fallen in the %s.", kRegions[region_].name);
         writeSave();
     }
 }
 
 void GameRuntime::damageEnemy(Enemy& en, float amount, bool crit) {
-    (void)crit;
     if (en.corpseTimer > 0.f || en.e.stats.hp <= 0.f) return;
     en.e.stats.hp -= amount;
     en.hitFlash = 0.18f;
+    postSound(crit ? audio::Sound::CritHit : audio::Sound::EnemyHit,
+              en.e.position, crit ? 0.75f : 0.35f, rng_.rangeF(0.92f, 1.12f));
     if (player_.stats().lifesteal > 0.f)
         player_.heal(amount * player_.stats().lifesteal);
     if (amount > 45.f) feedback_.hitstop(0.03f);
@@ -1278,6 +1396,8 @@ void GameRuntime::killEnemy(size_t idx) {
     ++kills_;
     awardXp((int)en.xp);
     updateQuests("kill", 1);
+    if (!en.boss)
+        postSound(audio::Sound::EnemyDie, en.e.position, 0.6f, rng_.rangeF(0.88f, 1.18f));
 
     const float g = rng_.rangeF(en.goldMin, en.goldMax) * affixLoot_ * (en.elite ? 3.f : 1.f);
     if (g > 1.f) {
@@ -1302,6 +1422,7 @@ void GameRuntime::killBoss() {
     const std::string name = boss_ ? boss_->name : std::string("The Warden");
 
     toast(DI_EVENT_BOSS, "%s has fallen!", name.c_str());
+    postSound(audio::Sound::BossDie, pos, 1.f, 0.85f);
     updateQuests("boss", 1);
 
     gold_ += 140 + region_ * 90 + stage_ * 45;
@@ -1321,6 +1442,7 @@ void GameRuntime::killBoss() {
         toast(DI_EVENT_INFO, "Floor %d cleared — score %d.", spireRun_.floor, spireRun_.score);
     } else if (stage_ == 3 && region_ == 4 && !campaignComplete_) {
         campaignComplete_ = true;
+        postSound(audio::Sound::Victory, player_.position(), 1.f, 1.f);
         toast(DI_EVENT_QUEST,
               "The Shattered Wilds are restored. Thank you for playing the campaign.");
     }
@@ -1369,13 +1491,19 @@ void GameRuntime::updatePickups(float dt) {
             if (pk.kind == 0) {
                 gold_ += pk.gold;
                 updateQuests("gold", pk.gold);
+                postSound(audio::Sound::GoldPickup, pk.pos, 0.45f,
+                          rng_.rangeF(0.95f, 1.16f));
                 pk.alive = false;
             } else if ((int)inventory_.size() >= DI_MAX_INVENTORY) {
                 prompt_ = "Inventory full";
+                postSound(audio::Sound::UIError, player_.position(), 0.35f, 1.f);
             } else {
                 inventory_.push_back(pk.item);
                 toast(DI_EVENT_LOOT, "%s  (%s)", pk.item.name.c_str(),
                       loot::rarityName(pk.item.rarity));
+                const bool sting = pk.item.rarity >= loot::Rarity::Legendary;
+                postSound(sting ? audio::Sound::LegendaryDrop : audio::Sound::ItemPickup,
+                          pk.pos, sting ? 0.95f : 0.55f, 1.f);
                 pk.alive = false;
                 saveDirtyTimer_ = 10.f;
             }
@@ -1477,9 +1605,11 @@ void GameRuntime::interact() {
             en.goldMax = 80.f;
             enemies_.push_back(en);
             toast(DI_EVENT_DANGER, "The reliquary had teeth — a Mimic!");
+            postSound(audio::Sound::MimicBite, c.pos, 1.f, rng_.rangeF(0.9f, 1.05f));
             camera_.shake(0.4f, 3.f);
             return;
         }
+        postSound(audio::Sound::ChestOpen, c.pos, 0.8f, rng_.rangeF(0.96f, 1.06f));
         gold_ += drop.gold;
         for (auto& it : drop.items) {
             if ((int)inventory_.size() >= DI_MAX_INVENTORY) break;
@@ -1493,6 +1623,7 @@ void GameRuntime::interact() {
     }
 
     if (portal_.alive && (portal_.pos - pp).length() < 4.0f) {
+        postSound(audio::Sound::Portal, portal_.pos, 0.9f, 1.f);
         if (spireMode_) {
             spire_.advance(spireRun_);
             spireFloor_ = spireRun_.floor;
@@ -1500,6 +1631,7 @@ void GameRuntime::interact() {
             stage_ = spireFloor_;
             generateLevel(region_, spireFloor_, true);
             toast(DI_EVENT_DANGER, "Infinity Spire — Floor %d", spireFloor_);
+            postSound(audio::Sound::SpireFloor, player_.position(), 0.9f, 1.05f);
         } else {
             if (stage_ < 3) {
                 ++stage_;
@@ -1509,6 +1641,7 @@ void GameRuntime::interact() {
                 unlockedRegions_ = std::max(unlockedRegions_, region_ + 1);
                 setupQuests(region_);
                 toast(DI_EVENT_INFO, "You enter the %s.", kRegions[region_].name);
+                postSound(audio::Sound::QuestAccept, player_.position(), 0.6f, 1.f);
             } else {
                 campaignComplete_ = true;
                 toast(DI_EVENT_QUEST, "There is nowhere left to descend. The Wilds are whole.");
@@ -1521,7 +1654,10 @@ void GameRuntime::interact() {
         return;
     }
 
-    if (spireExit_.alive && (spireExit_.pos - pp).length() < 4.0f) exitSpire();
+    if (spireExit_.alive && (spireExit_.pos - pp).length() < 4.0f) {
+        postSound(audio::Sound::Portal, spireExit_.pos, 0.8f, 1.f);
+        exitSpire();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1530,12 +1666,12 @@ void GameRuntime::updateWorldEvents(float dt) {
     if (bloodMoonTimer_ > 0.f) bloodMoonTimer_ -= dt;
 
     if (eventTimer_ > 0.f || dead_) return;
-    eventTimer_ = 150.f + rng_.rangeF(0.f, 70.f);
+    eventTimer_ = 150.f + rng_.rangeF(0.f, 70.f);    const int pick = rng_.range(0, 2);
 
-    const int pick = rng_.range(0, 2);
     if (pick == 0) {
         bloodMoonTimer_ = 30.f;
         toast(DI_EVENT_DANGER, "Blood Moon rising — the fallen grow bold.");
+        postSound(audio::Sound::Thunder, player_.position(), 0.95f, rng_.rangeF(0.85f, 1.f));
         const RegionArt& R = kRegions[region_];
         const math::Vec3 pp = player_.position();
         for (int i = 0; i < 6; ++i) {
@@ -1564,11 +1700,13 @@ void GameRuntime::updateWorldEvents(float dt) {
         (void)R;
     } else if (pick == 1) {
         toast(DI_EVENT_INFO, "A treasure gleams nearby — the earth yields its tithe.");
+        postSound(audio::Sound::WorldEvent, player_.position(), 0.6f, 1.1f);
         dropLoot(player_.position() + math::Vec3(rng_.rangeF(-4.f, 4.f), 0.f,
                                                  rng_.rangeF(-4.f, 4.f)),
                  2, 1.2f, 2.f);
     } else {
         toast(DI_EVENT_INFO, "Sanctuary's blessing: health and resource restored.");
+        postSound(audio::Sound::Shrine, player_.position(), 0.75f, 1.f);
         player_.heal(player_.stats().maxHealth);
         resource_.current = resource_.maximum;
     }
@@ -1595,6 +1733,7 @@ void GameRuntime::respawn() {
     camera_.follow(spawnWorld_, 1.f);
     toast(lost > 0 ? DI_EVENT_INFO : DI_EVENT_DANGER,
           "You rise again. %d gold was lost to the dark.", lost);
+    postSound(audio::Sound::Shrine, spawnWorld_, 0.85f, 0.92f);
     writeSave();
 }
 
@@ -1609,9 +1748,11 @@ void GameRuntime::travel(int region) {
         toast(DI_EVENT_DANGER, "Leave the Spire before travelling.");
         return;
     }
+    postSound(audio::Sound::Portal, player_.position(), 0.85f, 1.f);
     region_ = region;
     stage_ = 0;
     setupQuests(region_);
+    postSound(audio::Sound::QuestAccept, player_.position(), 0.6f, 1.f);
     generateLevel(region_, stage_, false);
     dead_ = false;
     player_.stats().health = player_.stats().maxHealth;
@@ -1638,6 +1779,7 @@ void GameRuntime::startSpire() {
     player_.stats().health = player_.stats().maxHealth;
     resource_.current = resource_.maximum;
     toast(DI_EVENT_DANGER, "The Infinity Spire — Floor %d", spireFloor_);
+    postSound(audio::Sound::SpireFloor, player_.position(), 0.95f, 1.f);
     saveDirtyTimer_ = 0.2f;
 }
 
@@ -1651,6 +1793,7 @@ void GameRuntime::exitSpire() {
     player_.stats().health = player_.stats().maxHealth;
     resource_.current = resource_.maximum;
     toast(DI_EVENT_INFO, "You step back into the %s.", kRegions[region_].name);
+    postSound(audio::Sound::Portal, player_.position(), 0.75f, 1.f);
     saveDirtyTimer_ = 0.2f;
 }
 
@@ -1659,6 +1802,7 @@ void GameRuntime::equipItem(int index) {
     equippedIdx_ = index;
     buildLoadout();
     toast(DI_EVENT_LOOT, "Equipped %s", inventory_[(size_t)index].name.c_str());
+    postSound(audio::Sound::UIClick, player_.position(), 0.45f, 1.f);
     saveDirtyTimer_ = 4.f;
 }
 
@@ -1674,6 +1818,8 @@ void GameRuntime::usePotion() {
     fx.rgba = withAlpha(rgb(220, 38, 38), 210);
     fx.mesh = DI_MESH_SPHERE; fx.flags = DI_FLAG_UNLIT; fx.additive = true;
     effects_.push_back(fx);
+    postSound(audio::Sound::PotionDrink, player_.position(), 0.7f,
+              rng_.rangeF(0.97f, 1.06f));
 }
 
 void GameRuntime::saveNow() { writeSave(); }

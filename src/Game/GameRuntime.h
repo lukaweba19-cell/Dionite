@@ -15,6 +15,7 @@
 #pragma once
 #include "Game/Snapshot.h"
 
+#include "Audio/AudioManager.h"
 #include "Core/Math/Random.h"
 #include "Player/Controller/PlayerController.h"
 #include "Player/Camera/GameCamera.h"
@@ -72,6 +73,10 @@ public:
     void exitSpire();
     void equipItem(int index);
     void saveNow();
+
+    // -- Audio (drained by the platform synthesizer each frame) ------------
+    audio::AudioManager& audio() { return audio_; }
+    const audio::AudioManager& audio() const { return audio_; }
 
     // -- Read-only status (exposed through the platform bridge) ------------
     int   skillPoints() const { return skillPoints_; }
@@ -162,7 +167,11 @@ private:
     void updateEffects(float dt);
     void updateInteraction();
     void updateWorldEvents(float dt);
+    void updateAudioState(float dt);
     void updateQuests(const std::string& what, int delta = 1);
+    /// Posts a sound at a world position: distance fades it, camera yaw pans it.
+    void postSound(audio::Sound id, const math::Vec3& at,
+                   float gain = 1.f, float pitch = 1.f);
     void damagePlayer(float amount, const math::Vec3& from);
     void damageEnemy(Enemy& en, float amount, bool crit);
     void killEnemy(size_t idx);
@@ -237,6 +246,7 @@ private:
 
     loot::LootRoller roller_{0x1234};
     loot::ChestSystem chestSys_{0xABCDEF};
+    audio::AudioManager audio_;
 
     std::unique_ptr<world::DungeonGenerator> dgen_;
     world::Dungeon dungeon_;
@@ -267,6 +277,8 @@ private:
     bool  prevAbility_[DI_MAX_ABILITIES] = {false, false, false, false, false, false};
     bool  prevFire_ = false;
     bool  prevDash_ = false;
+    bool  prevReloading_ = false;
+    float combatTimer_ = 0.f;      // hysteresis for music transitions
     bool  pendingClick_ = false;
     math::Vec3 pendingClickPos_;
     int   questRegion_ = -1;
