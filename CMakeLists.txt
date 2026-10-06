@@ -29,7 +29,11 @@ add_library(DioniteCore STATIC
     src/Core/Serialization/Serializer.cpp
     src/Core/Utils/FileUtils.cpp
 )
-target_include_directories(DioniteCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(DioniteCore PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    # Bundled third-party headers (nlohmann/json) — works without vcpkg.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/external
+)
 if(TARGET nlohmann_json::nlohmann_json)
   target_link_libraries(DioniteCore PUBLIC nlohmann_json::nlohmann_json)
 endif()
@@ -62,6 +66,8 @@ add_library(DioniteGame STATIC
     src/Rendering/Renderer.cpp
     src/GameSystems/QuestSystem.cpp
     src/GameSystems/EconomySystem.cpp
+    # Full runtime: campaign loop, dungeon floors, bosses, loot, save/load.
+    src/Game/GameRuntime.cpp
 )
 target_link_libraries(DioniteGame PUBLIC DioniteCore)
 
@@ -71,6 +77,14 @@ target_link_libraries(DioniteGame PUBLIC DioniteCore)
 # -----------------------------------------------------------------------------
 add_executable(DioniteDesktop src/platforms/desktop/main.cpp)
 target_link_libraries(DioniteDesktop PRIVATE DioniteGame)
+
+# -----------------------------------------------------------------------------
+# DioniteVerify — headless campaign verifier (81 checks over the full loop:
+# boot, 20 campaign floors, fast travel, spire, save/load round-trip).
+# Run:  ./DioniteVerify   (nonzero exit code = a check failed)
+# -----------------------------------------------------------------------------
+add_executable(DioniteVerify src/platforms/desktop/verify_campaign.cpp)
+target_link_libraries(DioniteVerify PRIVATE DioniteGame)
 
 # -----------------------------------------------------------------------------
 # iOS bridge library (shared with Swift host app via .a).

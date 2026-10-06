@@ -2,7 +2,7 @@
 // Dionite — NPC: Traveling Mage — roams biomes, enchants weapons, brews potions
 // ============================================================================
 #pragma once
-#include "../Base/NPCBase.h"
+#include "NPCs/Base/NPCBase.h"
 #include "Loot/Items/ItemBase.h"
 #include "Loot/Crafting/Crafter.h"
 #include "Core/Math/Random.h"

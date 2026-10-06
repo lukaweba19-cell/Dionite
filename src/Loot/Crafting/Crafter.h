@@ -2,8 +2,8 @@
 // Dionite — Loot: Crafting (Chimera reroll, Masterwork upgrade, Transmute)
 // ============================================================================
 #pragma once
-#include "ItemBase.h"
-#include "RaritySystem/Rarity.h"
+#include "Loot/Items/ItemBase.h"
+#include "Loot/RaritySystem/Rarity.h"
 #include "Core/Math/Random.h"
 
 namespace dionite::loot {

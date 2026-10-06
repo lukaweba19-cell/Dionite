@@ -2,7 +2,7 @@
 // Dionite — Combat: Weapon enchantments (vampiric, echo-cast, chain-lightning, etc.)
 // ============================================================================
 #pragma once
-#include "WeaponBase.h"
+#include "Combat/Weapons/WeaponBase.h"
 #include <unordered_map>
 #include <functional>
 

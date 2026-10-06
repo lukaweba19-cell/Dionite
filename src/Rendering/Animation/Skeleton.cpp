@@ -45,7 +45,7 @@ Mat4 Skeleton::globalTransform(int idx) const {
                              bones[idx].localRotation,
                              bones[idx].localScale);
     if (bones[idx].parent < 0) return local;
-    return Mat4::multiply(globalTransform(bones[idx].parent), local);
+    return globalTransform(bones[idx].parent) * local;
 }
 
 void Skeleton::resetPose() {
@@ -62,7 +62,7 @@ void Skeleton::computeSkinningMatrices(std::vector<Mat4>& palette) const {
     std::vector<Mat4> globals(bones.size());
     for (size_t i = 0; i < bones.size(); ++i) globals[i] = globalTransform((int)i);
     for (size_t i = 0; i < bones.size(); ++i)
-        palette[i] = Mat4::multiply(globals[i], bones[i].inverseBind);
+        palette[i] = globals[i] * bones[i].inverseBind;
 }
 
 } // namespace dionite::anim

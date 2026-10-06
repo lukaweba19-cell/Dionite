@@ -7,7 +7,7 @@
 #include "DungeonGenerator.h"
 #include "DungeonMeshBuilder.h"
 #include "Core/Math/Random.h"
-#include "Biomes/Biome.h"
+#include "World/Biomes/Biome.h"
 #include <vector>
 #include <string>
 

@@ -1,0 +1,88 @@
+# ============================================================================
+# Dionite — XcodeGen project description.
+#
+# Generate with:  xcodegen generate      (see scripts/package_ipa.sh)
+#
+# The target compiles every C++ translation unit under src/ (except the
+# platform shims, which own a `main()`), the Swift/Metal host under
+# platforms/ios/Dionite, and bundles assets/. Signing is disabled so CI can
+# produce an unsigned .ipa without any certificates.
+# ============================================================================
+name: Dionite
+
+options:
+  bundleIdPrefix: com.dionite
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    ALWAYS_SEARCH_USER_PATHS: NO
+    CLANG_CXX_LANGUAGE_STANDARD: c++17
+    CLANG_CXX_LIBRARY: libc++
+    CLANG_ENABLE_OBJC_ARC: YES
+    GCC_C_LANGUAGE_STANDARD: gnu11
+    SWIFT_VERSION: "5.0"
+    ENABLE_BITCODE: NO
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SUPPORTS_MACCATALYST: NO
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    HEADER_SEARCH_PATHS:
+      - "$(SRCROOT)/src"
+      - "$(SRCROOT)/src/external"
+      - "$(SRCROOT)/platforms/ios/Dionite"
+    OTHER_CPLUSPLUSFLAGS:
+      - "-std=c++17"
+      - "-fexceptions"
+
+targets:
+  Dionite:
+    type: application
+    platform: iOS
+    sources:
+      - path: platforms/ios/Dionite
+        excludes:
+          - "Info.plist"
+          - "TerrainShaders.metal"
+          - "PostFXShaders.metal"
+      - path: src
+        excludes:
+          - "platforms/**"
+      - path: assets
+        group: assets
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: Dionite
+        PRODUCT_BUNDLE_IDENTIFIER: com.dionite.shatteredwilds
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: platforms/ios/Dionite/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_OBJC_BRIDGING_HEADER: platforms/ios/Dionite/Dionite-Bridging-Header.h
+        SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        GCC_OPTIMIZATION_LEVEL: "3"
+        SWIFT_COMPILATION_MODE: wholemodule
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
+        # Unsigned CI build — no certificates or provisioning profiles needed.
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+        DEVELOPMENT_TEAM: ""
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+schemes:
+  Dionite:
+    build:
+      targets:
+        Dionite: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+    analyze:
+      config: Debug

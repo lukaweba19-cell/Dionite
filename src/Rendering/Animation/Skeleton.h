@@ -2,14 +2,16 @@
 // AAA pipeline: GLTF/FBX-baked skeletons up to 96 bones per character, dual-quaternion
 // skinning to avoid candy-wrapper collapse on extreme twists. Compatible with Maya / Blender.
 #pragma once
-#include "../../Core/Math/Mat4.h"
-#include "../../Core/Math/Vec3.h"
-#include "../../Core/Math/Vec4.h"
+#include "Core/Math/Matrix.h"
+#include "Core/Math/Vector.h"
 #include <string>
 #include <vector>
 #include <unordered_map>
 
 namespace dionite::anim {
+using math::Vec3;
+using math::Vec4;
+using math::Mat4;
 
 struct Bone {
     std::string name;

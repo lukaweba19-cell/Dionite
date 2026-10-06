@@ -2,7 +2,7 @@
 // Dionite — NPC: Jeweler — sockets gems/runes, removes them, identifies items
 // ============================================================================
 #pragma once
-#include "../Base/NPCBase.h"
+#include "NPCs/Base/NPCBase.h"
 #include "Loot/Items/ItemBase.h"
 #include "Loot/Socketing/SocketManager.h"
 

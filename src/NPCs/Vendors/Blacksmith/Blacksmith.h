@@ -2,7 +2,7 @@
 // Dionite — NPC: Blacksmith — repairs, masterworks, upgrades items
 // ============================================================================
 #pragma once
-#include "../Base/NPCBase.h"
+#include "NPCs/Base/NPCBase.h"
 #include "Loot/Items/ItemBase.h"
 #include "Loot/Crafting/Crafter.h"
 

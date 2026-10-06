@@ -1,53 +1,100 @@
 # Dionite — Build Instructions
 
-> ⚠ **This source tree is a studio starter kit.** It will NOT compile on the
-> Emergent preview container (Linux + Python/Node). All build steps below
-> must be run on your own developer machine (Mac for iOS, any OS for desktop).
+> The **C++ core compiles and is verified on Linux/macOS** with nothing but
+> `g++` (C++17) — no package installs required (nlohmann/json is vendored at
+> `src/external/`). The **iOS app** needs macOS — or just CI: every push runs
+> the full gate suite and uploads an unsigned `.ipa` artifact.
 
 ## Prerequisites
 
 | Tool                | Version | Notes                                          |
 | ------------------- | ------- | ---------------------------------------------- |
-| CMake               | ≥ 3.20  | `brew install cmake` / `apt install cmake`     |
-| Clang / Apple LLVM  | C++17   | Xcode 15+ or Clang 14+                         |
-| nlohmann/json       | latest  | `brew install nlohmann-json` or vcpkg          |
-| (Optional) GLFW     | 3.3+    | only for desktop window                        |
-| (Optional) Vulkan   | 1.3+    | only for desktop renderer                      |
+| g++ or Clang        | C++17   | `apt install g++` / Xcode CLT                  |
+| CMake               | ≥ 3.20  | optional — desktop harness & libs only          |
+| Xcode               | 15+     | iOS build (Mac required)                       |
+| XcodeGen            | latest  | `brew install xcodegen` (generates the .xcodeproj) |
+| SwiftLint           | latest  | optional locally; preinstalled on CI runners   |
 | Node.js             | 20+     | for the backend / admin dashboard              |
 | Docker              | 24+     | optional, for backend + Postgres stack         |
-| Xcode               | 15+     | iOS build (Mac required)                       |
 
-## 1. C++ Core (Desktop validation harness)
+nlohmann/json v3.11.3 is **vendored** — no vcpkg/brew install needed.
+
+## 1. C++ core — compile check + campaign verifier (any OS)
+
+```bash
+# Full-tree compile, warnings are errors (same gate CI runs):
+files=$(find src -name '*.cpp' | sort)
+files="$files platforms/ios/Dionite/DioniteBridgeImpl.cpp"
+g++ -std=c++17 -Wall -Wextra -Wno-missing-field-initializers -Werror \
+  -Isrc -Isrc/external -Iplatforms/ios/Dionite -fsyntax-only $files
+
+# Campaign verifier — 81 checks over the full game loop (boot, 20 campaign
+# floors, bosses, loot, quests, fast travel, Infinity Spire, save/load):
+g++ -std=c++17 -O1 -Isrc -Isrc/external \
+  src/platforms/desktop/verify_campaign.cpp src/Game/GameRuntime.cpp \
+  src/Combat/Weapons/WeaponBase.cpp src/Loot/Items/ItemBase.cpp \
+  src/Progression/Skills/SkillLibrary.*.cpp -o dionite_verify
+./dionite_verify        # "81 checks, 0 failures", exit 0
+
+# Optional static + leak analysis (what CI enforces):
+g++ -std=c++17 -fanalyzer -Wall -Wextra -Werror \
+  -Isrc -isystem src/external -c src/Game/GameRuntime.cpp -o /dev/null
+valgrind --leak-check=full --errors-for-leak-kinds=definite ./dionite_verify
+```
+
+CMake equivalents:
+
 ```bash
 cmake -S . -B build -DDIONITE_USE_BUNDLED=ON
 cmake --build build -j
-./build/DioniteDesktop      # runs a headless validation loop
+./build/DioniteVerify    # 81-check campaign verifier
+./build/DioniteDesktop   # legacy headless loop
 ```
 
-If you don't have `nlohmann/json` installed system-wide, drop `nlohmann/json.hpp`
-into `src/external/nlohmann/` and toggle `-DDIONITE_USE_BUNDLED=ON`.
+## 2. iOS build — unsigned `.ipa` (Mac, or CI)
 
-## 2. iOS Build (Mac + Xcode required)
+The Xcode project is generated from `project.yml` (XcodeGen); it compiles the
+entire C++ tree plus the Swift/Metal host and bundles `assets/`.
+
 ```bash
-# Generate Xcode project for the C++ bridge static lib
-cmake -G Xcode -S . -B build_ios \
-      -DCMAKE_SYSTEM_NAME=iOS \
-      -DCMAKE_OSX_ARCHITECTURES=arm64 \
-      -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
-cmake --build build_ios --config Release
-# Then open platforms/ios/Dionite.xcodeproj (you must create this via Xcode
-# referencing the Swift sources under platforms/ios/Dionite/ and linking
-# libDioniteIOS.a from build_ios/Release-iphoneos/).
+brew install xcodegen
+sh ./scripts/package_ipa.sh        # -> dist/Dionite.ipa (+ dist/symbols/)
 ```
-Sign with your Apple Developer team, set `PRODUCT_BUNDLE_IDENTIFIER` to
-`com.dionite.shatteredwilds`, archive, and submit to TestFlight.
 
-## 3. Android Build (Studio + NDK)
+The script:
+
+1. `xcodegen generate` → `Dionite.xcodeproj` (git-ignored, regenerated any time)
+2. `xcodebuild` for a generic iOS device with **signing disabled**
+3. zips `Payload/Dionite.app` into `dist/Dionite.ipa`
+
+The `.ipa` is **unsigned/ad-hoc** — sideload it with AltStore, TrollStore, or
+Sideloadly. To run from Xcode on a device, open `Dionite.xcodeproj`, select
+your team under *Signing & Capabilities*, and run.
+
+To sign for App Store / TestFlight: set your team, archive, and distribute as
+usual — `PRODUCT_BUNDLE_IDENTIFIER` is `com.dionite.shatteredwilds`.
+
+## 3. Continuous integration (`.github/workflows/ios-build.yml`)
+
+Every push runs three parallel jobs; all must be green:
+
+| Job         | Runner     | Gates                                                                 |
+| ----------- | ---------- | --------------------------------------------------------------------- |
+| `cpp-checks`| ubuntu     | `-Werror` compile of every TU, GCC `-fanalyzer` static/leak analysis, the 81-check campaign verifier, valgrind leak check over a full campaign run |
+| `swiftlint` | macos-14   | `swiftlint lint --strict` over the Swift/Metal host                    |
+| `build-ipa` | macos-14   | XcodeGen + unsigned `xcodebuild`, uploads **`Dionite.ipa`** artifact (+ dSYM; xcodebuild log uploaded on failure) |
+
+Download the `.ipa` from the workflow run's **Artifacts** section. Nothing to
+configure: no certificates, no provisioning profiles, no secrets.
+
+## 4. Android build (Studio + NDK)
+
 Open `platforms/android` in Android Studio (or run `./gradlew assembleRelease`).
 The `MainActivity.java` JNI methods call into the C++ library compiled by
 CMake at the repo root.
 
-## 4. Backend & Admin Dashboard
+## 5. Backend & Admin Dashboard
+
 ```bash
 cd server
 docker compose up --build       # starts Postgres + server (:4000) + admin (:5173)
@@ -69,10 +116,15 @@ VITE_API_URL=http://localhost:4000 yarn dev
 Default admin (seeded only if you POST `/api/auth/register` with
 `email=admin@dionite.game` then bump role manually via SQL or create your own).
 
-## 5. Asset Pipeline
-Drop `.fbx` / `.gltf` into `assets/models/`. The runtime supports
-`assimp`-loaded meshes (link `find_package(assimp)` in `CMakeLists.txt`
-under `DioniteGame` once you wire up the import path).
+## 6. Asset Pipeline
+
+Meshes, textures and audio are **generated procedurally** at runtime by the
+iOS host (`GameRenderer.swift` mesh factory + vertex-colored materials), so a
+shipped build needs no binary art assets.
+
+Drop `.fbx` / `.gltf` into `assets/models/` when you wire up real art; the
+runtime supports `assimp`-loaded meshes (link `find_package(assimp)` in
+`CMakeLists.txt` under `DioniteGame` once you wire up the import path).
 
 Audio: `.wav` / `.ogg` go in `assets/audio/{music,sfx,voice}/`.
 

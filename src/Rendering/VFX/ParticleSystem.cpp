@@ -1,10 +1,10 @@
 #include "ParticleSystem.h"
-#include "../../Core/Math/Random.h"
+#include "Core/Math/Random.h"
 #include <algorithm>
 
 namespace dionite::vfx {
 
-static dionite::core::Random g_rng(0xD10417E5u);
+static dionite::math::Random g_rng(0xD10417E5u);
 
 int ParticleSystem::registerEmitter(const ParticleEmitter& e) {
     emitters.push_back(e);
@@ -21,14 +21,14 @@ void ParticleSystem::spawn(int idx, const Vec3& origin, int count) {
         Particle p;
         p.position = origin;
         p.velocity = {
-            em.spawnVelocity.x + g_rng.range(-em.velocityRandom.x, em.velocityRandom.x),
-            em.spawnVelocity.y + g_rng.range(-em.velocityRandom.y, em.velocityRandom.y),
-            em.spawnVelocity.z + g_rng.range(-em.velocityRandom.z, em.velocityRandom.z),
+            em.spawnVelocity.x + g_rng.rangeF(-em.velocityRandom.x, em.velocityRandom.x),
+            em.spawnVelocity.y + g_rng.rangeF(-em.velocityRandom.y, em.velocityRandom.y),
+            em.spawnVelocity.z + g_rng.rangeF(-em.velocityRandom.z, em.velocityRandom.z),
         };
-        p.life    = g_rng.range(em.lifetimeMin, em.lifetimeMax);
+        p.life    = g_rng.rangeF(em.lifetimeMin, em.lifetimeMax);
         p.age     = 0.f;
         p.size    = em.size.start;
-        p.rot     = g_rng.range(0.f, em.rotationRandom);
+        p.rot     = g_rng.rangeF(0.f, em.rotationRandom);
         p.color   = em.color.start;
         p.emitter = idx;
         particles.push_back(p);

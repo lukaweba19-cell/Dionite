@@ -13,7 +13,7 @@
 #include "Heightmap.h"
 #include "TerrainMeshBuilder.h"
 #include "Noise.h"
-#include "Biomes/Biome.h"
+#include "World/Biomes/Biome.h"
 #include <vector>
 
 namespace dionite::world {

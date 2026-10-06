@@ -6,7 +6,7 @@
 #pragma once
 #include "Core/Math/Vector.h"
 #include "Core/Math/Random.h"
-#include "Biomes/Biome.h"
+#include "World/Biomes/Biome.h"
 #include <string>
 #include <vector>
 #include <functional>

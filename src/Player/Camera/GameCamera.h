@@ -80,10 +80,8 @@ public:
     // Project a click in NDC (-1..1) to a ray for click-to-move.
     // Returns the world-space ground intersection assuming a flat plane at y=0.
     bool groundFromScreen(float ndcX, float ndcY, float aspect, math::Vec3& outWorld) const {
-        const math::Mat4 view = viewMatrix();
-        const math::Mat4 proj = projMatrix(aspect);
-        // Build inverse VP analytically: for scaffolding we approximate by
-        // projecting a ray from camera forward and tilting by ndcX/ndcY.
+        // Build the ray analytically from the camera basis; the game runs on a
+        // near-flat plane so we intersect y = 0 directly.
         math::Vec3 fwd  = (lookAt_ - position_).normalized();
         math::Vec3 right = fwd.cross({0,1,0}).normalized();
         math::Vec3 up   = right.cross(fwd).normalized();

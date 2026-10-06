@@ -2,7 +2,7 @@
 // Dionite — Loot: Chests (regular, mimics, vaults) with weighted drops
 // ============================================================================
 #pragma once
-#include "ItemBase.h"
+#include "Loot/Items/ItemBase.h"
 #include "Core/Math/Random.h"
 #include <vector>
 #include <string>

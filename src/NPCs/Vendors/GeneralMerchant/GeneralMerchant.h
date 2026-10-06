@@ -2,7 +2,7 @@
 // Dionite — NPC: General Merchant — buys/sells consumables and basic gear
 // ============================================================================
 #pragma once
-#include "../Base/NPCBase.h"
+#include "NPCs/Base/NPCBase.h"
 #include "Loot/Items/ItemBase.h"
 #include <vector>
 

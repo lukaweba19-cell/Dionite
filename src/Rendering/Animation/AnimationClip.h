@@ -3,12 +3,13 @@
 // SLERP for rotation, root-motion extraction supported (translation X/Z stripped from root
 // when locomotion blends with movement).
 #pragma once
-#include "../../Core/Math/Vec3.h"
-#include "../../Core/Math/Vec4.h"
+#include "Core/Math/Vector.h"
 #include <string>
 #include <vector>
 
 namespace dionite::anim {
+using math::Vec3;
+using math::Vec4;
 
 template <typename T>
 struct Keyframe { float t = 0.f; T value{}; };

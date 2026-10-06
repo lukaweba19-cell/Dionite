@@ -2,12 +2,13 @@
 // Pool size: 100k particles per frame target on iPhone 13+; sub-stages for emit / simulate /
 // sort / draw. Each emitter is a data block; the renderer batches by texture+blend mode.
 #pragma once
-#include "../Core/Math/Vec3.h"
-#include "../Core/Math/Vec4.h"
+#include "Core/Math/Vector.h"
 #include <string>
 #include <vector>
 
 namespace dionite::vfx {
+using math::Vec3;
+using math::Vec4;
 
 enum class BlendMode { Alpha, Additive, Multiply, PremultipliedAlpha };
 enum class EmitShape { Point, Sphere, Cone, Box, Ring, Mesh };

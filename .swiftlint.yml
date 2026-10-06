@@ -1,0 +1,59 @@
+# ============================================================================
+# Dionite — SwiftLint configuration.
+#
+# Only the Swift host is linted; the C++ core is checked by the compiler
+# (-Wall -Wextra -Werror) and GCC's static analyzer instead.
+#
+# Severities here are tuned so that real defects (force casts, badly sized
+# types, unreachable code) surface as errors while stylistic noise stays a
+# warning and does not fail CI.
+# ============================================================================
+included:
+  - platforms/ios/Dionite
+
+excluded:
+  - build
+  - dist
+  - src
+  - server
+  - .build
+
+disabled_rules:
+  # Style rules that fight a game HUD's dense, deliberate layout code.
+  - line_length
+  - file_length
+  - type_body_length
+  - function_body_length
+  - cyclomatic_complexity
+  - force_cast
+  - identifier_name
+  - todo
+  - large_tuple
+  - trailing_whitespace
+  - vertical_whitespace
+  - opening_brace
+  - statement_position
+  - trailing_newline
+  - multiple_closures_with_trailing_closure
+  - function_parameter_count
+  - nesting
+
+opt_in_rules:
+  - empty_count
+  - empty_string
+  - duplicated_keys
+  - unreachable_while_self
+  - unused_setter_value
+
+analyzer_rules:
+  - unused_declaration
+
+line_length:
+  warning: 140
+  error: 260
+
+type_name:
+  min_length: 2
+  max_length: 45
+
+reporter: "xcode"

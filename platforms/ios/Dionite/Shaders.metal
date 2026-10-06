@@ -1,218 +1,161 @@
 // ============================================================================
-// Dionite — Metal Shaders: full PBR pipeline with cascaded shadow maps,
-// dynamic point lights, normal mapping, and emissive bloom feed.
-// Author: Dionite Studio Starter Kit
+// Dionite — Metal shaders for the snapshot renderer.
+//
+// The C++ runtime hands us a flat list of DIInstance records (exactly 64 bytes,
+// see src/Game/Snapshot.h) grouped into three passes:
+//   [0 .. opaque)                   opaque geometry       — alpha blend, depth write
+//   [opaque .. opaque+translucent)  translucent geometry  — alpha blend, depth read only
+//   [.. end)                        additive geometry     — additive blend, depth read only
+//
+// Instances are drawn instanced-per-mesh: the vertex buffer holds one
+// primitive (quad / box / capsule / sphere / cone / cylinder) and the instance
+// buffer supplies position, yaw, scale, colour and flags.
 // ============================================================================
 #include <metal_stdlib>
 using namespace metal;
 
-constant float PI = 3.14159265359;
-
 // ---------------------------------------------------------------------------
-// Uniforms
+// Must match DIInstance in src/Game/Snapshot.h — 64 bytes, 4-byte alignment.
 // ---------------------------------------------------------------------------
-struct DirectionalLight {
-    float4 direction;   // xyz, w intensity
-    float4 color;       // rgb, w castShadow
+struct Instance {
+    float x, y, z;
+    float rotY;
+    float sx, sy, sz;
+    float emissive;
+    uint  rgba;     // byte order R,G,B,A in memory
+    uint  mesh;     // DIMesh
+    uint  flags;    // DI_FLAG_BILLBOARD | DI_FLAG_UNLIT
+    float phase;
+    uint  pad0;
+    float pad1, pad2, pad3;
 };
 
-struct CameraUniforms {
-    float4x4 view;
-    float4x4 proj;
-    float4   cameraPos;        // xyz, w unused
-    DirectionalLight sun;
-    float4x4 sunVP[4];
-    float4   cascadeSplits;    // 4 cascade far distances
+// Must match SceneUniforms in GameRenderer.swift — 176 bytes.
+struct Scene {
+    float4x4 viewProj;
+    float4   eye;       // xyz camera position, w time
+    float4   sun;       // xyz direction toward the sun, w intensity
+    float4   sunColor;  // rgb sun colour, w hemisphere ambient
+    float4   fog;       // rgb fog colour, w fog density
+    float4   post;      // x exposure, y shake, z/w unused
+    float4   camRight;  // xyz camera right axis (billboards)
+    float4   camUp;     // xyz camera up axis (billboards)
 };
 
-struct ModelUniforms {
-    float4x4 model;
-    float4   albedoTint;       // rgb tint, a emissive strength
-    float4   matParams;        // x metallic, y roughness, z receivesShadow, w castsShadow
-};
+#define FLAG_BILLBOARD 0x1u
+#define FLAG_UNLIT     0x2u
 
-struct PointLight {
-    float4 position;   // xyz, w radius
-    float4 color;      // rgb, w intensity
-};
-
-// ---------------------------------------------------------------------------
-// Vertex
-// ---------------------------------------------------------------------------
 struct VertexIn {
     float3 position [[attribute(0)]];
     float3 normal   [[attribute(1)]];
-    float3 tangent  [[attribute(2)]];
-    float2 uv       [[attribute(3)]];
+    float2 uv       [[attribute(2)]];
 };
 
 struct VertexOut {
     float4 position [[position]];
     float3 worldPos;
-    float3 worldNormal;
-    float3 worldTangent;
-    float3 worldBitangent;
+    float3 normal;
     float2 uv;
+    float4 colour;
+    float  emissive;
+    float  phase;
+    float  flags;
 };
 
-vertex VertexOut vertex_main(VertexIn in [[stage_in]],
-                             constant CameraUniforms& cam [[buffer(1)]],
-                             constant ModelUniforms&  mdl [[buffer(2)]]) {
+static float3 unpackRGB(uint rgba) {
+    return float3(float(rgba & 0xffu),
+                  float((rgba >> 8) & 0xffu),
+                  float((rgba >> 16) & 0xffu)) * (1.0f / 255.0f);
+}
+
+static float unpackAlpha(uint rgba) {
+    return float((rgba >> 24) & 0xffu) * (1.0f / 255.0f);
+}
+
+// ---------------------------------------------------------------------------
+// Vertex stage
+// ---------------------------------------------------------------------------
+vertex VertexOut vertex_instanced(VertexIn in [[stage_in]],
+                                  const device Instance* instances [[buffer(1)]],
+                                  constant Scene& scene [[buffer(2)]],
+                                  uint iid [[instance_id]]) {
+    const Instance inst = instances[iid];
     VertexOut out;
-    float4 world = mdl.model * float4(in.position, 1.0);
-    out.position = cam.proj * cam.view * world;
-    out.worldPos = world.xyz;
-    out.worldNormal    = normalize((mdl.model * float4(in.normal, 0)).xyz);
-    out.worldTangent   = normalize((mdl.model * float4(in.tangent, 0)).xyz);
-    out.worldBitangent = cross(out.worldNormal, out.worldTangent);
+
+    // Scale in local space first, then yaw, then translate.
+    float3 local = float3(in.position.x * inst.sx,
+                          in.position.y * inst.sy,
+                          in.position.z * inst.sz);
+    float c = cos(inst.rotY);
+    float s = sin(inst.rotY);
+    float3 rotated = float3(local.x * c + local.z * s,
+                            local.y,
+                           -local.x * s + local.z * c);
+
+    float3 world;
+    float3 normal = float3(in.normal.x * c + in.normal.z * s,
+                           in.normal.y,
+                          -in.normal.x * s + in.normal.z * c);
+
+    if ((inst.flags & FLAG_BILLBOARD) != 0u) {
+        // The quad lies in XZ locally; re-anchor it on the camera basis so it
+        // always faces the viewer (health bars, ground glows, markers).
+        world = float3(inst.x, inst.y, inst.z)
+              + scene.camRight.xyz * local.x
+              + scene.camUp.xyz * local.z;
+        normal = normalize(scene.eye.xyz - world);
+    } else {
+        world = float3(inst.x, inst.y, inst.z) + rotated;
+    }
+
+    // Gentle idle bob/spin driven by the instance phase for living things.
+    out.position = scene.viewProj * float4(world, 1.0f);
+    out.worldPos = world;
+    out.normal = normal;
     out.uv = in.uv;
+    out.colour = float4(unpackRGB(inst.rgba), unpackAlpha(inst.rgba));
+    out.emissive = inst.emissive;
+    out.phase = inst.phase;
+    out.flags = float(inst.flags);
     return out;
 }
 
 // ---------------------------------------------------------------------------
-// PBR helpers (Disney/UE4 lite — GGX + Smith + Schlick)
+// Fragment stage
 // ---------------------------------------------------------------------------
-inline float3 fresnelSchlick(float cosT, float3 F0) {
-    return F0 + (1.0 - F0) * pow(1.0 - cosT, 5.0);
-}
-inline float ggx(float ndh, float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float denom = (ndh * ndh) * (a2 - 1.0) + 1.0;
-    return a2 / (PI * denom * denom);
-}
-inline float smithG(float ndv, float ndl, float roughness) {
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0;
-    float gv = ndv / (ndv * (1.0 - k) + k);
-    float gl = ndl / (ndl * (1.0 - k) + k);
-    return gv * gl;
-}
+fragment float4 fragment_instanced(VertexOut in [[stage_in]],
+                                   constant Scene& scene [[buffer(2)]]) {
+    const bool unlit = (uint(in.flags) & FLAG_UNLIT) != 0u;
 
-// ---------------------------------------------------------------------------
-// Shadow sampling — pick cascade by depth
-// ---------------------------------------------------------------------------
-inline float sampleShadow(float3 worldPos, float viewDepth,
-                          constant CameraUniforms& cam,
-                          depth2d_array<float> shadowMaps,
-                          sampler shadowSampler) {
-    int cascade = 3;
-    for (int i = 0; i < 4; ++i) {
-        if (viewDepth < cam.cascadeSplits[i]) { cascade = i; break; }
-    }
-    float4 lp = cam.sunVP[cascade] * float4(worldPos, 1.0);
-    float3 ndc = lp.xyz / lp.w;
-    float2 uv = ndc.xy * 0.5 + 0.5;
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 1.0;
-    float bias = 0.0008;
-    float lit = 0.0;
-    for (int dy = -1; dy <= 1; ++dy)
-      for (int dx = -1; dx <= 1; ++dx) {
-        float depth = shadowMaps.sample(shadowSampler, uv + float2(dx, dy) * (1.0/2048.0), cascade);
-        lit += (ndc.z - bias < depth) ? 1.0 : 0.0;
-      }
-    return lit / 9.0;
-}
+    float3 base = in.colour.rgb;
+    float3 lit;
+    if (unlit) {
+        lit = base * (1.0f + in.emissive);
+    } else {
+        float3 n = normalize(in.normal);
+        float ndl = max(dot(n, scene.sun.xyz), 0.0f);
+        float hemi = 0.55f + 0.45f * n.y;
+        float3 ambient = base * scene.sunColor.w * hemi;
+        float3 diffuse = base * scene.sunColor.rgb * scene.sun.w * ndl;
 
-// ---------------------------------------------------------------------------
-// Fragment
-// ---------------------------------------------------------------------------
-fragment float4 fragment_main(VertexOut in [[stage_in]],
-                              constant CameraUniforms& cam [[buffer(1)]],
-                              constant ModelUniforms&  mdl [[buffer(2)]],
-                              constant PointLight* pointLights [[buffer(3)]],
-                              constant uint& pointLightCount [[buffer(4)]],
-                              texture2d<float> albedoTex   [[texture(0)]],
-                              texture2d<float> normalTex   [[texture(1)]],
-                              texture2d<float> mraTex      [[texture(2)]],
-                              texture2d<float> emissiveTex [[texture(3)]],
-                              depth2d_array<float> shadowMaps [[texture(4)]],
-                              sampler texSampler           [[sampler(0)]],
-                              sampler shadowSampler        [[sampler(1)]]) {
-    // ---- Material sample ---------------------------------------------------
-    float4 albedo = albedoTex.sample(texSampler, in.uv);
-    albedo.rgb *= mdl.albedoTint.rgb;
-    float3 mra    = mraTex.sample(texSampler, in.uv).rgb;
-    float metallic = mra.r * mdl.matParams.x + mdl.matParams.x;
-    float roughness = clamp(mra.g * mdl.matParams.y + 0.04, 0.04, 1.0);
-    float ao        = mra.b;
-    float3 emissive = emissiveTex.sample(texSampler, in.uv).rgb * mdl.albedoTint.a;
+        // Rim light so silhouettes read against a dark dungeon.
+        float3 viewDir = normalize(scene.eye.xyz - in.worldPos);
+        float rim = pow(1.0f - saturate(dot(viewDir, n)), 3.0f) * 0.22f;
 
-    // ---- Normal mapping ---------------------------------------------------
-    float3 nMap = normalTex.sample(texSampler, in.uv).rgb * 2.0 - 1.0;
-    float3x3 TBN = float3x3(normalize(in.worldTangent),
-                            normalize(in.worldBitangent),
-                            normalize(in.worldNormal));
-    float3 N = normalize(TBN * nMap);
-    float3 V = normalize(cam.cameraPos.xyz - in.worldPos);
-
-    float3 F0 = mix(float3(0.04), albedo.rgb, metallic);
-    float3 Lo = float3(0.0);
-
-    // ---- Sun (directional) -----------------------------------------------
-    {
-        float3 L = normalize(-cam.sun.direction.xyz);
-        float3 H = normalize(V + L);
-        float ndl = max(dot(N, L), 0.0);
-        float ndv = max(dot(N, V), 0.0);
-        float ndh = max(dot(N, H), 0.0);
-        float3 F  = fresnelSchlick(max(dot(H, V), 0.0), F0);
-        float D   = ggx(ndh, roughness);
-        float G   = smithG(ndv, ndl, roughness);
-        float3 spec = (D * G * F) / max(4.0 * ndv * ndl, 0.001);
-        float3 kd = (float3(1.0) - F) * (1.0 - metallic);
-        float viewDepth = -(cam.view * float4(in.worldPos, 1.0)).z;
-        float shadow = (cam.sun.color.w > 0.5)
-            ? sampleShadow(in.worldPos, viewDepth, cam, shadowMaps, shadowSampler)
-            : 1.0;
-        Lo += (kd * albedo.rgb / PI + spec) * cam.sun.color.rgb * cam.sun.direction.w * ndl * shadow;
+        lit = ambient + diffuse + base * in.emissive + rim * scene.sunColor.rgb;
     }
 
-    // ---- Point lights ----------------------------------------------------
-    for (uint i = 0; i < pointLightCount; ++i) {
-        float3 lp = pointLights[i].position.xyz;
-        float radius = pointLights[i].position.w;
-        float3 toL = lp - in.worldPos;
-        float dist = length(toL);
-        if (dist > radius) continue;
-        float3 L = toL / max(dist, 0.0001);
-        float atten = pow(1.0 - dist / radius, 2.0);
-        float3 H = normalize(V + L);
-        float ndl = max(dot(N, L), 0.0);
-        float ndv = max(dot(N, V), 0.0);
-        float ndh = max(dot(N, H), 0.0);
-        float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-        float D = ggx(ndh, roughness);
-        float G = smithG(ndv, ndl, roughness);
-        float3 spec = (D * G * F) / max(4.0 * ndv * ndl, 0.001);
-        float3 kd = (float3(1.0) - F) * (1.0 - metallic);
-        Lo += (kd * albedo.rgb / PI + spec) * pointLights[i].color.rgb * pointLights[i].color.w * ndl * atten;
+    // Exponential distance fog toward the biome's atmosphere colour.
+    float distanceToEye = distance(scene.eye.xyz, in.worldPos);
+    float fogAmount = 1.0f - exp(-scene.fog.w * distanceToEye);
+    lit = mix(lit, scene.fog.rgb, saturate(fogAmount));
+
+    lit *= scene.post.x; // exposure (flashes when the player is hurt)
+
+    float alpha = in.colour.a;
+    if (unlit) {
+        // Additive markers keep their authored alpha; do not fog them to death.
+        alpha *= exp(-scene.fog.w * distanceToEye * 0.5f);
     }
-
-    // ---- Ambient + emissive + rim ----------------------------------------
-    float3 ambient = float3(0.03) * albedo.rgb * ao;
-    float rim = pow(1.0 - max(dot(V, N), 0.0), 3.0) * 0.18;
-    float3 color = ambient + Lo + emissive + rim * float3(1.0, 0.85, 0.55);
-
-    // ---- Reinhard tonemap + gamma -----------------------------------------
-    color = color / (color + float3(1.0));
-    color = pow(color, float3(1.0 / 2.2));
-    return float4(color, albedo.a);
+    return float4(lit, alpha);
 }
-
-// ---------------------------------------------------------------------------
-// Shadow-only pass — depth write to cascade slices
-// ---------------------------------------------------------------------------
-struct ShadowVertexOut { float4 position [[position]]; };
-
-vertex ShadowVertexOut vertex_shadow(VertexIn in [[stage_in]],
-                                     constant CameraUniforms& cam [[buffer(1)]],
-                                     constant ModelUniforms&  mdl [[buffer(2)]],
-                                     constant uint& cascadeIndex  [[buffer(5)]]) {
-    ShadowVertexOut out;
-    float4 world = mdl.model * float4(in.position, 1.0);
-    out.position = cam.sunVP[cascadeIndex] * world;
-    return out;
-}
-
-fragment void fragment_shadow() {}

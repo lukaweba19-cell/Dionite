@@ -3,9 +3,12 @@
 // Cheap enough to run on phone GPU at 60Hz for a single character.
 #pragma once
 #include "Skeleton.h"
-#include "../../Core/Math/Vec3.h"
+#include "Core/Math/Vector.h"
 
 namespace dionite::anim {
+using math::Vec3;
+using math::Vec4;
+using math::Mat4;
 
 class IKSolver {
 public:

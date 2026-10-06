@@ -1,5 +1,8 @@
 // ============================================================================
-// Dionite — iOS AppDelegate (Swift). Boots Metal view, hands frames to C++ core.
+// Dionite — iOS AppDelegate.
+//
+// Presents the game view controller; the session itself (save discovery, class
+// selection and core boot) is owned by GameViewController.
 // ============================================================================
 import UIKit
 import Metal
@@ -12,15 +15,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         window = UIWindow(frame: UIScreen.main.bounds)
-        let gameVC = GameViewController()
-        window?.rootViewController = gameVC
+        window?.rootViewController = GameViewController()
         window?.makeKeyAndVisible()
-        DioniteBridge.shared.bootCore()
         return true
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
         DioniteBridge.shared.pause()
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        DioniteBridge.shared.saveNow()
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {

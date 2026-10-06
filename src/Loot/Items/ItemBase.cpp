@@ -1,4 +1,5 @@
 #include "ItemBase.h"
+#include <algorithm>
 #include <ctime>
 
 namespace dionite::loot {

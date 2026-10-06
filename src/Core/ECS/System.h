@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 #include <functional>
+#include <algorithm>
 
 namespace dionite::core {
 
@@ -49,7 +50,7 @@ public:
     template <typename T>
     void forEach(std::function<void(Entity&, T&)> fn) {
         for (auto& [id, e] : entities_) {
-            if (auto* c = e->getComponent<T>()) fn(*e, *c);
+            if (auto* c = e->template getComponent<T>()) fn(*e, *c);
         }
     }
 

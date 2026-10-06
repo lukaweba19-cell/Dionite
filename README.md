@@ -9,7 +9,7 @@
 
 ## ⚠ Important Note on this Repository
 
-This repo is a **Studio Starter Kit** — a fully scaffolded, well-architected source tree designed to be taken to a **Mac + Xcode** (for iOS) or a **desktop dev box** for compilation, integration, and continued development. It will **not compile or run** inside the Emergent Linux container (no Metal, no Xcode, no signing). The preview URL shows a **Studio Manifest** landing page documenting what is in this tree.
+This is a **full, playable ARPG codebase**, not a stub: the C++ core compiles clean with `g++ -Werror` on Linux/macOS, and an 81-check headless campaign verifier exercises the entire game loop (20 campaign floors, bosses, loot, quests, fast travel, the Infinity Spire, save/load). The iOS app (Swift + Metal) builds into an **unsigned `.ipa` on every push** via GitHub Actions — see [`docs/build-instructions.md`](docs/build-instructions.md).
 
 ## Project Vision
 
@@ -61,7 +61,11 @@ Start weak and afraid → become an unstoppable god with broken builds, insane l
 | Infinity Spire endgame  | `src/GameSystems/InfinitySpire.h`               |
 | Ghost Battles           | `src/GameSystems/GhostBattles.h`                |
 | Enchantment Matrix (5×5)| `src/GameSystems/EnchantmentMatrix.h`           |
+| **Full campaign runtime** (20 floors + Spire, save/load) | `src/Game/GameRuntime.cpp` |
+| 64-byte render/HUD snapshot contract | `src/Game/Snapshot.h`        |
 | iOS Swift glue + Metal shader | `platforms/ios/Dionite/`                  |
+| XcodeGen project + .ipa packaging | `project.yml`, `scripts/package_ipa.sh` |
+| CI (lint, analysis, verifier, .ipa) | `.github/workflows/ios-build.yml` |
 | Virtual joysticks       | `platforms/ios/Dionite/VirtualJoystick.swift`   |
 | Xbox / PlayStation gamepad bridge | `platforms/ios/Dionite/GamepadBridge.swift` |
 | Android JNI scaffold    | `platforms/android/`                            |
@@ -76,12 +80,23 @@ See [`docs/architecture.md`](docs/architecture.md) for a full module map.
 See [`docs/build-instructions.md`](docs/build-instructions.md).
 
 ```bash
-# C++ validation harness (Linux/Mac)
-cmake -S . -B build -DDIONITE_USE_BUNDLED=ON && cmake --build build -j
+# Campaign verifier — 81 checks over the full game loop (any OS, just g++)
+g++ -std=c++17 -O1 -Isrc -Isrc/external \
+  src/platforms/desktop/verify_campaign.cpp src/Game/GameRuntime.cpp \
+  src/Combat/Weapons/WeaponBase.cpp src/Loot/Items/ItemBase.cpp \
+  src/Progression/Skills/SkillLibrary.*.cpp -o dionite_verify && ./dionite_verify
+
+# iOS .ipa (Mac): generate the Xcode project and package, unsigned
+brew install xcodegen && sh ./scripts/package_ipa.sh   # -> dist/Dionite.ipa
 
 # Backend + admin (Docker)
 cd server && docker compose up --build
 ```
+
+**CI (`.github/workflows/ios-build.yml`)** — every push runs SwiftLint
+(strict), the `-Werror` compile + GCC `-fanalyzer` static/leak analysis, the
+campaign verifier, a valgrind leak check, and the unsigned iOS build, then
+uploads `Dionite.ipa` as a workflow artifact.
 
 ## Controls
 

@@ -9,6 +9,7 @@ dist/
 .vscode/
 *.xcuserdata/
 DerivedData/
+Dionite.xcodeproj/
 Pods/
 *.ipa
 *.app

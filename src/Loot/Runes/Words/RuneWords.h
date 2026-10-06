@@ -2,7 +2,7 @@
 // Dionite — Loot: Rune Words (exact ordered rune combinations grant huge bonuses)
 // ============================================================================
 #pragma once
-#include "Rune.h"
+#include "Loot/Runes/Rune.h"
 #include <vector>
 #include <string>
 #include <unordered_map>

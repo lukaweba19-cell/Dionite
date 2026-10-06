@@ -4,11 +4,12 @@
 // Vignette. Configured per-biome via VisualProfile. Implemented as Metal compute kernels
 // for iOS, fragment shaders for the desktop/Android validation path.
 #pragma once
-#include "../Core/Math/Vec3.h"
-#include "../Core/Math/Vec4.h"
+#include "Core/Math/Vector.h"
 #include <string>
 
 namespace dionite::postfx {
+using math::Vec3;
+using math::Vec4;
 
 struct BloomConfig {
     bool  enabled         = true;

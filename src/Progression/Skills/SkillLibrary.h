@@ -11,7 +11,7 @@
 //   Passive      — always on; modifies stats/triggers (no cost, no cooldown).
 // ============================================================================
 #pragma once
-#include "ClassRegistry.h"
+#include "Progression/Classes/ClassRegistry.h"
 #include <string>
 #include <vector>
 #include <unordered_map>

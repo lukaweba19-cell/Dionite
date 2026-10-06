@@ -2,7 +2,7 @@
 // Dionite — Loot: Rarity color mapping + helpers
 // ============================================================================
 #pragma once
-#include "ItemBase.h"
+#include "Loot/Items/ItemBase.h"
 
 namespace dionite::loot {
 

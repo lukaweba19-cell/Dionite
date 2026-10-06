@@ -4,6 +4,7 @@
 #pragma once
 #include "Core/Math/Vector.h"
 #include <string>
+#include <functional>
 
 namespace dionite::combat {
 

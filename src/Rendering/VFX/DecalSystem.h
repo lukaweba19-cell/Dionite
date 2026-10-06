@@ -2,13 +2,15 @@
 // footprints. Cuboid OBB projector → fragment shader samples decal texture in the
 // projector's local UV space. Limited to 64 decals on-screen at once for mobile perf.
 #pragma once
-#include "../Core/Math/Vec3.h"
-#include "../Core/Math/Vec4.h"
-#include "../Core/Math/Mat4.h"
+#include "Core/Math/Vector.h"
+#include "Core/Math/Matrix.h"
 #include <string>
 #include <vector>
 
 namespace dionite::vfx {
+using math::Vec3;
+using math::Vec4;
+using math::Mat4;
 
 enum class DecalLayer { Blood, Scorch, Ice, Footprint, Magic, Stain };
 

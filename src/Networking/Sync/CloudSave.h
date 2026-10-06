@@ -2,7 +2,7 @@
 // Dionite — Networking: Cloud save (push/pull player profile)
 // ============================================================================
 #pragma once
-#include "NetworkClient.h"
+#include "Networking/Client/NetworkClient.h"
 #include <nlohmann/json.hpp>
 
 namespace dionite::net {

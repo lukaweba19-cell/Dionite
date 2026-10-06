@@ -2,7 +2,7 @@
 // Dionite — Combat: Weapon mod registry (barrels, scopes, mags, stocks, muzzles, grips)
 // ============================================================================
 #pragma once
-#include "WeaponBase.h"
+#include "Combat/Weapons/WeaponBase.h"
 #include <vector>
 #include <unordered_map>
 

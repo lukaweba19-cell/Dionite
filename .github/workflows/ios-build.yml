@@ -1,0 +1,136 @@
+# ============================================================================
+# Dionite — CI: SwiftLint + static/leak analysis + unsigned .ipa on every push.
+#
+# Jobs (parallel):
+#   cpp-checks  — g++ -Werror over every TU, GCC -fanalyzer static analysis,
+#                 the 81-check campaign verifier, and a valgrind leak check
+#                 over a full campaign run.          (ubuntu-latest)
+#   swiftlint   — swiftlint lint --strict over the Swift/Metal host.
+#                                                  (macos-14, preinstalled)
+#   build-ipa   — xcodegen + xcodebuild, packaged as an unsigned Dionite.ipa
+#                 artifact (no certificates/provisioning).  (macos-14)
+# ============================================================================
+name: iOS CI
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # C++ core: warnings are errors, static analysis, behavioral + leak gates.
+  # ---------------------------------------------------------------------------
+  cpp-checks:
+    name: C++ compile / static & leak analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compiler pass (every TU, warnings are errors)
+        run: |
+          set -eu
+          files=$(find src -name '*.cpp' | sort)
+          files="$files platforms/ios/Dionite/DioniteBridgeImpl.cpp"
+          g++ -std=c++17 -Wall -Wextra -Wno-missing-field-initializers -Werror \
+            -Isrc -Isrc/external -Iplatforms/ios/Dionite -fsyntax-only $files
+          echo "OK: $(echo "$files" | wc -l) translation units compile clean"
+
+      - name: Static analysis (GCC -fanalyzer, whole tree)
+        run: |
+          set -eu
+          # GameRuntime.cpp is analyzed in its own step below: its nlohmann/json
+          # save-load path makes the analyzer an order of magnitude slower.
+          files=$(find src -name '*.cpp' | sort | grep -v '^src/Game/GameRuntime.cpp$')
+          files="$files platforms/ios/Dionite/DioniteBridgeImpl.cpp"
+          count=0
+          for f in $files; do
+            g++ -std=c++17 -fanalyzer -Wall -Wextra -Wno-missing-field-initializers -Werror \
+              -Isrc -isystem src/external -Iplatforms/ios/Dionite -c "$f" -o /tmp/analyzer.o
+            count=$((count + 1))
+          done
+          echo "OK: -fanalyzer clean on $count translation units"
+
+      - name: Deep static analysis (GameRuntime.cpp)
+        run: |
+          set -eu
+          # Bounded so a pathological analyzer run cannot hang the job.
+          timeout 1500 g++ -std=c++17 -fanalyzer -Wall -Wextra \
+            -Wno-missing-field-initializers -Werror \
+            -Isrc -isystem src/external \
+            -c src/Game/GameRuntime.cpp -o /tmp/analyzer-gr.o \
+            || { echo "::error::GameRuntime.cpp static analysis failed or exceeded 25 min"; exit 1; }
+          echo "OK: GameRuntime.cpp analyzed clean"
+
+      - name: Campaign verifier (81 checks over the full game loop)
+        run: |
+          set -eu
+          g++ -std=c++17 -O1 -Isrc -Isrc/external \
+            src/platforms/desktop/verify_campaign.cpp src/Game/GameRuntime.cpp \
+            src/Combat/Weapons/WeaponBase.cpp src/Loot/Items/ItemBase.cpp \
+            src/Progression/Skills/SkillLibrary.*.cpp -o dionite_verify
+          ./dionite_verify
+
+      - name: Leak check (valgrind over a full campaign run)
+        run: |
+          set -eu
+          command -v valgrind >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y valgrind; }
+          valgrind --leak-check=full --errors-for-leak-kinds=definite \
+            --error-exitcode=99 ./dionite_verify
+          echo "OK: no definite leaks, no invalid accesses"
+
+  # ---------------------------------------------------------------------------
+  # Swift host lint.
+  # ---------------------------------------------------------------------------
+  swiftlint:
+    name: SwiftLint (strict)
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Swift/Metal host
+        run: |
+          set -eu
+          command -v swiftlint >/dev/null 2>&1 || brew install swiftlint
+          swiftlint lint --strict
+
+  # ---------------------------------------------------------------------------
+  # Unsigned .ipa — no certificates, no provisioning profiles.
+  # ---------------------------------------------------------------------------
+  build-ipa:
+    name: Build unsigned Dionite.ipa
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+
+      - name: Generate project and package .ipa
+        run: sh ./scripts/package_ipa.sh
+
+      - name: Upload xcodebuild log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Upload Dionite.ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dionite-ipa
+          path: |
+            dist/Dionite.ipa
+            dist/symbols/**
+          if-no-files-found: error

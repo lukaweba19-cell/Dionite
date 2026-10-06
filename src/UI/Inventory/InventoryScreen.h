@@ -2,7 +2,7 @@
 // Dionite — UI: Inventory screen (Diablo-style grid + equipment slots)
 // ============================================================================
 #pragma once
-#include "UIScreen.h"
+#include "UI/Screens/UIScreen.h"
 #include "Loot/Items/ItemBase.h"
 #include <vector>
 #include <unordered_map>

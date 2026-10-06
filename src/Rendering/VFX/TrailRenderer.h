@@ -3,12 +3,13 @@
 // scrolling for animated textures. Width tapers from head (1.0) to tail (0.0) for the wisp
 // look. Used heavily for melee attacks and Fortnite-style damage trails.
 #pragma once
-#include "../Core/Math/Vec3.h"
-#include "../Core/Math/Vec4.h"
+#include "Core/Math/Vector.h"
 #include <string>
 #include <vector>
 
 namespace dionite::vfx {
+using math::Vec3;
+using math::Vec4;
 
 struct TrailPoint {
     Vec3  position;

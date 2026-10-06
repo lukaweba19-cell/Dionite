@@ -17,7 +17,7 @@
 // ============================================================================
 #pragma once
 #include "SkillLibrary.h"
-#include "Classes/ClassRegistry.h"
+#include "Progression/Classes/ClassRegistry.h"
 #include <array>
 #include <vector>
 #include <string>
@@ -31,9 +31,9 @@ struct ActiveSlot {
 };
 
 struct PlayerLoadout {
-    ClassId classId;
-    std::array<ActiveSlot, 6> active;     // Basic / Core / Defensive / Mobility / Utility / Ultimate
-    std::array<std::string, 4> passives;  // up to 4 passive ids
+    ClassId classId = ClassId::Crusader;
+    std::array<ActiveSlot, 6> active{};     // Basic / Core / Defensive / Mobility / Utility / Ultimate
+    std::array<std::string, 4> passives{};  // up to 4 passive ids
 };
 
 struct ResourceState {

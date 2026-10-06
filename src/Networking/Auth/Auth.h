@@ -2,7 +2,7 @@
 // Dionite — Auth: client-side token storage + Apple ID glue
 // ============================================================================
 #pragma once
-#include "NetworkClient.h"
+#include "Networking/Client/NetworkClient.h"
 #include <nlohmann/json.hpp>
 
 namespace dionite::net {

@@ -2,10 +2,10 @@
 // Dionite — Loot: Socket manager (insert / remove gems & runes; reset)
 // ============================================================================
 #pragma once
-#include "ItemBase.h"
-#include "Gems/Gem.h"
-#include "Runes/Rune.h"
-#include "Runes/Words/RuneWords.h"
+#include "Loot/Items/ItemBase.h"
+#include "Loot/Gems/Gem.h"
+#include "Loot/Runes/Rune.h"
+#include "Loot/Runes/Words/RuneWords.h"
 #include <unordered_map>
 
 namespace dionite::loot {
