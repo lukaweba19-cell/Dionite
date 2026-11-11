@@ -187,7 +187,7 @@ final class DioniteBridge {
         return textByField[field] ?? ""
     }
 
-    func ability(_ slot: Int) -> AbilityState {
+    func abilityState(_ slot: Int) -> AbilityState {
         guard slot >= 0, slot < abilityStates.count else { return AbilityState() }
         return abilityStates[slot]
     }

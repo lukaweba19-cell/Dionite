@@ -555,7 +555,7 @@ final class HUDView: UIView {
         questObjective.text = bridge.hudText(HudText.questObjective.rawValue)
 
         for (index, slot) in slots.enumerated() {
-            slot.update(ability: bridge.ability(index))
+            slot.update(ability: bridge.abilityState(index))
         }
 
         deathOverlay.isHidden = hud.dead == 0
