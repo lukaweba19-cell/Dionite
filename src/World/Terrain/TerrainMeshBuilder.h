@@ -5,7 +5,7 @@
 // ============================================================================
 #pragma once
 #include "Heightmap.h"
-#include "Rendering/Renderer.h"
+#include "Rendering/MeshData.h"
 #include "Core/Math/Vector.h"
 #include <vector>
 

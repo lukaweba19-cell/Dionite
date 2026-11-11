@@ -9,10 +9,7 @@
 // It asserts on observable state (HUD / snapshot / C API results) rather than
 // on private members, so it fails the build if any part of the loop regresses.
 //
-// Build:  g++ -std=c++17 -Isrc -Isrc/external
-//             src/platforms/desktop/verify_campaign.cpp src/Game/GameRuntime.cpp
-//             src/Combat/Weapons/WeaponBase.cpp src/Loot/Items/ItemBase.cpp
-//             src/Progression/Skills/SkillLibrary.*.cpp -o dionite_verify
+// Build:  scripts/test_core.sh  (compiles tests/core_verify.cpp and runs it)
 // ============================================================================
 #include "Game/GameRuntime.h"
 

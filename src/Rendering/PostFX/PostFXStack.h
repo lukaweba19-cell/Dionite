@@ -1,8 +1,8 @@
 // PostFXStack.h — Full-screen post-processing pipeline (mobile-tuned).
 // Order of operations matches "Diablo IV" presentation: HDR → Bloom → Auto-exposure →
 // Color grading (3D LUT) → Tonemap (ACES) → Chromatic aberration (subtle) → Film grain →
-// Vignette. Configured per-biome via VisualProfile. Implemented as Metal compute kernels
-// for iOS, fragment shaders for the desktop/Android validation path.
+// Vignette. Configured per-biome via PostFXProfile and executed by the Metal
+// compute kernels in PostFXShaders.metal.
 #pragma once
 #include "Core/Math/Vector.h"
 #include <string>
@@ -68,7 +68,6 @@ class PostFXStack {
 public:
     PostFXProfile profile;
     void loadBiomeProfile(const std::string& biomeId);  // swap LUTs + intensities
-    void apply(/* framebuffer in/out + camera uniforms */);  // wired by Metal/Vulkan layer
 };
 
 } // namespace dionite::postfx

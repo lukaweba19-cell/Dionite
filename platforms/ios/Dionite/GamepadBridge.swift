@@ -47,28 +47,28 @@ final class GamepadBridge {
         guard let pad = controller.extendedGamepad else { return }
 
         pad.buttonA.valueChangedHandler = { [weak self] _, _, pressed in
-            self?.bridge.setFire(pressed)
+            self?.bridge.fire(pressed)
         }
         pad.buttonB.valueChangedHandler = { [weak self] _, _, pressed in
-            self?.bridge.setDash(pressed)
+            if pressed { self?.bridge.dash() }
         }
         pad.buttonX.valueChangedHandler = { [weak self] _, _, pressed in
-            self?.bridge.setAbility(0, pressed)
+            if pressed { self?.bridge.ability(0) }
         }
         pad.buttonY.valueChangedHandler = { [weak self] _, _, pressed in
-            self?.bridge.setAbility(1, pressed)
+            if pressed { self?.bridge.ability(1) }
         }
         pad.leftShoulder.valueChangedHandler = { [weak self] _, _, pressed in
-            self?.bridge.setAbility(2, pressed)
+            if pressed { self?.bridge.ability(2) }
         }
         pad.rightShoulder.valueChangedHandler = { [weak self] _, _, pressed in
-            self?.bridge.setAbility(3, pressed)
+            if pressed { self?.bridge.ability(3) }
         }
         pad.dpad.left.valueChangedHandler = { [weak self] _, _, pressed in
-            self?.bridge.setAbility(4, pressed)
+            if pressed { self?.bridge.ability(4) }
         }
         pad.dpad.right.valueChangedHandler = { [weak self] _, _, pressed in
-            self?.bridge.setAbility(5, pressed)
+            if pressed { self?.bridge.ability(5) }
         }
         pad.dpad.up.valueChangedHandler = { [weak self] _, _, pressed in
             if pressed { self?.bridge.interact() }
@@ -82,10 +82,10 @@ final class GamepadBridge {
 
     func pumpToCore() {
         guard let pad = controller?.extendedGamepad else { return }
-        bridge.setMove(x: pad.leftThumbstick.xAxis.value,
-                       y: -pad.leftThumbstick.yAxis.value)
-        bridge.setAim(x: pad.rightThumbstick.xAxis.value,
-                      y: -pad.rightThumbstick.yAxis.value)
-        bridge.setFire(pad.rightTrigger.isPressed || pad.buttonA.isPressed)
+        bridge.move(x: pad.leftThumbstick.xAxis.value,
+                    y: -pad.leftThumbstick.yAxis.value)
+        bridge.aim(x: pad.rightThumbstick.xAxis.value,
+                   y: -pad.rightThumbstick.yAxis.value)
+        bridge.fire(pad.rightTrigger.isPressed || pad.buttonA.isPressed)
     }
 }

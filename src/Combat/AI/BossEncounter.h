@@ -6,7 +6,6 @@
 #pragma once
 #include "Core/Math/Vector.h"
 #include "Combat/AI/BossAI.h"
-#include "Rendering/Renderer.h"
 #include <string>
 #include <vector>
 #include <functional>

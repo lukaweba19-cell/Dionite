@@ -26,6 +26,7 @@ final class GameViewController: UIViewController, MTKViewDelegate {
     private var booted = false
     private var saveDir = ""
     private var lastHud = DIHud()
+    private var pendingFrame: FrameSnapshot?
     private var authView: AuthView?
     private var loadingView: UIView?
     private var lastUploadAt: CFTimeInterval = 0
@@ -199,9 +200,18 @@ final class GameViewController: UIViewController, MTKViewDelegate {
     private func boot(classId: Int32, hasSave: Bool) {
         classSelect?.removeFromSuperview()
         classSelect = nil
-        bridge.boot(saveDir: saveDir, classId: classId, seed: 0, hasSave: hasSave)
-        bridge.resize(width: Int32(max(1, metalView.drawableSize.width)),
-                      height: Int32(max(1, metalView.drawableSize.height)))
+        let started = bridge.boot(saveDir: saveDir,
+                                  classId: classId,
+                                  seed: 0,
+                                  hasSave: hasSave,
+                                  width: Int32(max(1, metalView.drawableSize.width)),
+                                  height: Int32(max(1, metalView.drawableSize.height)))
+        guard started else {
+            showLoading(text: bridge.lastError.isEmpty
+                        ? "The world failed to load."
+                        : bridge.lastError)
+            return
+        }
         booted = true
         lastFrameTime = CACurrentMediaTime()
     }
@@ -211,19 +221,19 @@ final class GameViewController: UIViewController, MTKViewDelegate {
     private func setupControls() {
         moveStick = VirtualJoystick(frame: CGRect(x: 16, y: 0, width: 140, height: 140))
         moveStick.onChange = { [weak self] dx, dy in
-            self?.bridge.setMove(x: Float(dx), y: Float(-dy))
+            self?.bridge.move(x: Float(dx), y: Float(-dy))
         }
         view.addSubview(moveStick)
         view.addSubview(hud)
         view.addSubview(menu)
 
         hud.onAbility = { [weak self] slot, _ in
-            guard let self = self else { return }
-            self.bridge.setAbility(slot, true)
-            DispatchQueue.main.async { self.bridge.setAbility(slot, false) }
+            self?.bridge.ability(slot)
         }
-        hud.onFire = { [weak self] pressed in self?.bridge.setFire(pressed) }
-        hud.onDash = { [weak self] pressed in self?.bridge.setDash(pressed) }
+        hud.onFire = { [weak self] pressed in self?.bridge.fire(pressed) }
+        hud.onDash = { [weak self] pressed in
+            if pressed { self?.bridge.dash() }
+        }
         hud.onPotion = { [weak self] in self?.bridge.usePotion() }
         hud.onInteract = { [weak self] in self?.bridge.interact() }
         hud.onRespawn = { [weak self] in self?.bridge.respawn() }
@@ -242,11 +252,11 @@ final class GameViewController: UIViewController, MTKViewDelegate {
             self?.menu.isHidden = true
         }
         menu.onStartSpire = { [weak self] in
-            self?.bridge.startSpire()
+            self?.bridge.spire(enter: true)
             self?.menu.isHidden = true
         }
         menu.onExitSpire = { [weak self] in
-            self?.bridge.exitSpire()
+            self?.bridge.spire(enter: false)
             self?.menu.isHidden = true
         }
         menu.onSave = { [weak self] in self?.bridge.saveNow() }
@@ -271,7 +281,7 @@ final class GameViewController: UIViewController, MTKViewDelegate {
         let ndcX = Float(point.x / width * 2 - 1)
         let ndcY = Float(1 - point.y / height * 2)
         if let world = bridge.screenToWorld(ndcX: ndcX, ndcY: ndcY) {
-            bridge.clickToMove(world: world)
+            bridge.moveTo(world)
         }
     }
 
@@ -302,6 +312,7 @@ final class GameViewController: UIViewController, MTKViewDelegate {
             bridge.tick(delta: delta)
             audio.pumpFromCore()
             pumpCloud(now: now)
+            pendingFrame = bridge.frame()
         }
 
         guard let drawable = view.currentDrawable,
@@ -311,9 +322,8 @@ final class GameViewController: UIViewController, MTKViewDelegate {
         }
 
         var scene = SceneUniforms()
-        if booted {
-            _ = bridge.cameraSnapshot()
-            scene = buildScene()
+        if let frame = pendingFrame {
+            scene = buildScene(frame)
         }
 
         passDescriptor.colorAttachments[0].loadAction = .clear
@@ -326,21 +336,23 @@ final class GameViewController: UIViewController, MTKViewDelegate {
         passDescriptor.depthAttachment.clearDepth = 1.0
 
         if let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor) {
-            if booted, let renderer = renderer {
-                let snapshot = bridge.instances()
+            if let renderer = renderer, let frame = pendingFrame {
                 renderer.encode(encoder,
                                 scene: &scene,
-                                instances: snapshot.pointer,
-                                opaque: snapshot.opaque,
-                                translucent: snapshot.translucent,
-                                additive: snapshot.additive)
+                                instances: frame.instances,
+                                opaque: frame.opaqueCount,
+                                translucent: frame.translucentCount,
+                                additive: frame.additiveCount)
             }
             encoder.endEncoding()
         }
         commandBuffer.present(drawable)
         commandBuffer.commit()
 
-        refreshUI(scene: scene, drawableSize: view.drawableSize)
+        if let frame = pendingFrame {
+            refreshUI(frame: frame, viewProj: scene.viewProj)
+            pendingFrame = nil
+        }
     }
 
     // MARK: - Cloud sync
@@ -379,47 +391,46 @@ final class GameViewController: UIViewController, MTKViewDelegate {
         }
     }
 
-    private func buildScene() -> SceneUniforms {
+    /// Builds the GPU scene block from the frame snapshot's camera. The view
+    /// matrix rows are the camera right/up axes used to orient billboards.
+    private func buildScene(_ frame: FrameSnapshot) -> SceneUniforms {
         var scene = SceneUniforms()
-        let matrix = bridge.viewProjection()
-        scene.viewProj = simd_float4x4(columns: (
-            SIMD4<Float>(matrix[0], matrix[1], matrix[2], matrix[3]),
-            SIMD4<Float>(matrix[4], matrix[5], matrix[6], matrix[7]),
-            SIMD4<Float>(matrix[8], matrix[9], matrix[10], matrix[11]),
-            SIMD4<Float>(matrix[12], matrix[13], matrix[14], matrix[15])
-        ))
+        scene.viewProj = frame.viewProjection
 
-        let vectors = bridge.cameraVectors()
-        let factors = bridge.cameraFactors()
-        let basis = bridge.cameraBasis()
+        var view = frame.camera.view
+        let basis: (right: SIMD3<Float>, up: SIMD3<Float>) =
+            withUnsafePointer(to: &view) { pointer in
+                pointer.withMemoryRebound(to: Float.self, capacity: 16) { floats in
+                    (SIMD3<Float>(floats[0], floats[4], floats[8]),
+                     SIMD3<Float>(floats[1], floats[5], floats[9]))
+                }
+            }
 
-        scene.eye = SIMD4(vectors[0], vectors[1], vectors[2], factors[0])
-        scene.sun = SIMD4(vectors[3], vectors[4], vectors[5], factors[1])
-        scene.sunColor = SIMD4(vectors[6], vectors[7], vectors[8], factors[2])
-        scene.fog = SIMD4(vectors[9], vectors[10], vectors[11], factors[3])
-        scene.post = SIMD4(factors[4], factors[5], 0, 0)
-        scene.camRight = SIMD4(basis.right.x, basis.right.y, basis.right.z, 0)
-        scene.camUp = SIMD4(basis.up.x, basis.up.y, basis.up.z, 0)
+        let camera = frame.camera
+        scene.eye = SIMD4<Float>(camera.pos.0, camera.pos.1, camera.pos.2, camera.time)
+        scene.sun = SIMD4<Float>(camera.sunDir.0, camera.sunDir.1, camera.sunDir.2,
+                                 camera.sunIntensity)
+        scene.sunColor = SIMD4<Float>(camera.sunColor.0, camera.sunColor.1,
+                                      camera.sunColor.2, camera.ambient)
+        scene.fog = SIMD4<Float>(camera.fogColor.0, camera.fogColor.1,
+                                 camera.fogColor.2, camera.fogDensity)
+        scene.post = SIMD4<Float>(camera.exposure, camera.shake, 0, 0)
+        scene.camRight = SIMD4<Float>(basis.right.x, basis.right.y, basis.right.z, 0)
+        scene.camUp = SIMD4<Float>(basis.up.x, basis.up.y, basis.up.z, 0)
         return scene
     }
 
-    private func refreshUI(scene: SceneUniforms, drawableSize: CGSize) {
-        guard booted else { return }
-        if let snapshot = bridge.hudSnapshot() {
-            lastHud = snapshot
-            hud.update(hud: snapshot)
-        }
+    private func refreshUI(frame: FrameSnapshot, viewProj: simd_float4x4) {
+        lastHud = frame.hud
+        hud.update(hud: frame.hud)
 
-        var queued = 0
-        while queued < 4, let event = bridge.popEvent() {
+        for event in bridge.popEvents(limit: 4) {
             hud.show(event: event)
-            queued += 1
         }
 
-        let numbers = bridge.damageNumbers()
         let size = CGSize(width: max(1, view.bounds.width),
                           height: max(1, view.bounds.height))
-        hud.show(damage: numbers, viewProj: scene.viewProj, size: size)
+        hud.show(damage: frame.damageNumbers, viewProj: viewProj, size: size)
     }
 }
 

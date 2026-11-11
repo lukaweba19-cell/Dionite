@@ -1,5 +1,5 @@
 // ============================================================================
-// Dionite — Math: 4x4 column-major matrix + transform helpers (Metal/Vulkan style)
+// Dionite — Math: 4x4 column-major matrix + transform helpers (Metal layout)
 // ============================================================================
 #pragma once
 #include "Vector.h"

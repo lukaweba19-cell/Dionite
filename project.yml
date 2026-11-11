@@ -48,11 +48,6 @@ targets:
           - "TerrainShaders.metal"
           - "PostFXShaders.metal"
       - path: src
-        excludes:
-          # `platforms/*` (not `**`): a directory match is expanded to all of
-          # its children by XcodeGen, so this excludes src/platforms/**
-          # without exercising globstar expansion.
-          - "platforms/*"
       # NB: do NOT add a `group:` key to a source entry whose group name
       # equals its own path (e.g. `group: assets` on `path: assets`).
       # XcodeGen then registers the group as its own parent and

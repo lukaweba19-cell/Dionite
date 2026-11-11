@@ -1,0 +1,73 @@
+# ============================================================================
+# Dionite — iOS CI.
+#
+# SwiftLint (strict) over the Swift host, then XcodeGen + xcodebuild for an
+# unsigned device build packaged as Dionite.ipa. No certificates are involved.
+# ============================================================================
+name: iOS
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: SwiftLint (strict)
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint Swift host
+        run: |
+          set -eu
+          command -v swiftlint >/dev/null 2>&1 || brew install swiftlint
+          swiftlint lint --strict
+
+  build:
+    name: Build unsigned Dionite.ipa
+    runs-on: macos-14
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: |
+          set -eu
+          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen --version
+
+      - name: Validate project spec
+        timeout-minutes: 3
+        run: |
+          set -eu
+          xcodegen dump --type json > /tmp/spec-dump.json
+          echo "OK: spec parsed ($(wc -c < /tmp/spec-dump.json) bytes)"
+
+      - name: Generate and build
+        timeout-minutes: 30
+        run: sh ./scripts/package_ipa.sh
+
+      - name: Upload xcodebuild log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Upload Dionite.ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dionite-ipa
+          path: |
+            dist/Dionite.ipa
+            dist/symbols/**
+          if-no-files-found: error

@@ -1,0 +1,75 @@
+# ============================================================================
+# Dionite — C++ core CI.
+#
+# The game core is platform-free; this job proves it before the iOS build:
+#   1. every translation unit compiles with warnings as errors
+#   2. the static analyzer reports nothing
+#   3. the headless campaign verifier passes
+#   4. valgrind finds no leaks or invalid accesses
+# ============================================================================
+name: Core
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Compile / analyze / verify / leak
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compiler pass (every TU, warnings are errors)
+        run: |
+          set -eu
+          files="$(find src -name '*.cpp' | sort) platforms/ios/Dionite/DioniteBridgeImpl.cpp"
+          g++ -std=c++17 -Wall -Wextra -Wno-missing-field-initializers -Werror \
+            -Isrc -Isrc/external -Iplatforms/ios/Dionite -fsyntax-only $files
+          echo "OK: $(echo "$files" | wc -l) translation units compile clean"
+
+      - name: Static analysis (clang --analyze)
+        run: |
+          set -eu
+          CLANGXX="$(command -v clang++-18 || command -v clang++-17 || command -v clang++-16 || command -v clang++-15 || command -v clang++ || true)"
+          if [ -z "$CLANGXX" ]; then
+            sudo apt-get update && sudo apt-get install -y clang
+            CLANGXX="$(command -v clang++)"
+          fi
+          echo "Using $($CLANGXX --version | head -1)"
+          failed=0
+          count=0
+          for f in $(find src -name '*.cpp' | sort) platforms/ios/Dionite/DioniteBridgeImpl.cpp; do
+            out="$($CLANGXX -std=c++17 -Wall -Wextra -Isrc -isystem src/external \
+              -Iplatforms/ios/Dionite --analyze -Xanalyzer -analyzer-output=text \
+              -o /dev/null "$f" 2>&1)" || {
+              echo "::error::analysis failed to run on $f"; echo "$out"; failed=1; continue; }
+            if echo "$out" | grep -q "warning:"; then
+              echo "::error::static analyzer findings in $f"
+              echo "$out"
+              failed=1
+            fi
+            count=$((count + 1))
+          done
+          if [ "$failed" -ne 0 ]; then exit 1; fi
+          echo "OK: clang static analyzer clean on $count translation units"
+
+      - name: Campaign verifier
+        run: sh ./scripts/test_core.sh
+
+      - name: Leak check (valgrind)
+        run: |
+          set -eu
+          command -v valgrind >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y valgrind; }
+          valgrind --leak-check=full --errors-for-leak-kinds=definite \
+            --error-exitcode=99 ./build/dionite_verify
+          echo "OK: no definite leaks, no invalid accesses"

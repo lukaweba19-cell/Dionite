@@ -7,7 +7,7 @@
 - Biomes + procedural dungeons + bosses
 - Deep loot (sockets, runes, gems, rarity)
 - Paragon endgame
-- Solid C++ architecture + iOS/Desktop targets
+- Solid portable C++ core + iOS (Swift/Metal) target
 
 ### What We’re Adding (the fun layer)
 

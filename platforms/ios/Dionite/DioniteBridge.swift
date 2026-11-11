@@ -1,23 +1,14 @@
 // ============================================================================
-// Dionite — Swift ↔ C++ bridge.
+// Dionite — Swift ↔ C++ bridge (ABI 2).
 //
-// The C symbols arrive through Dionite-Bridging-Header.h. Struct members that
-// are C fixed-size arrays (matrix columns, HUD strings) are read through the
-// buffer-based accessors in DioniteAPI.h rather than directly, because those
-// do not import into Swift in a usable shape. Scalar struct members are read
-// straight off the imported struct.
+// The only place Swift touches the game core. Per frame the host makes exactly
+// two crossings: `dionite_tick()` and `dionite_frame()`. Everything in the frame
+// snapshot is a pointer into runtime-owned storage, so reading it allocates
+// nothing. Strings are pulled through stable `const char *` accessors and cached
+// against `dionite_text_revision()` instead of being rebuilt every frame.
 // ============================================================================
 import Foundation
-
-// MARK: - Helpers
-
-/// Reads a NUL-terminated string out of a zero-filled `CChar` array.
-private func readCString(_ buffer: [CChar]) -> String {
-    return buffer.withUnsafeBufferPointer { pointer in
-        guard let base = pointer.baseAddress else { return "" }
-        return String(cString: base)
-    }
-}
+import simd
 
 // MARK: - Models surfaced to the UI
 
@@ -44,205 +35,275 @@ struct WorldEvent {
     var text: String
 }
 
+/// One rendered frame. The pointers are valid until the next tick/frame call,
+/// so this value must not be stored across frames.
+struct FrameSnapshot {
+    var camera: DICamera
+    var hud: DIHud
+    var instances: UnsafePointer<DIInstance>?
+    var opaqueCount: Int32
+    var translucentCount: Int32
+    var additiveCount: Int32
+    var damageNumbers: UnsafeBufferPointer<DIDamageNumber>
+    var viewProjection: simd_float4x4
+}
+
 // MARK: - Bridge
 
 final class DioniteBridge {
     static let shared = DioniteBridge()
-    private init() {}
+
+    /// Latest HUD block, kept for the menu and cloud upload paths.
+    private(set) var hud = DIHud()
+
+    private var textRevision: UInt32 = .max
+    private var textByField: [Int32: String] = [:]
+    private var abilityNames: [String] = []
+    private var abilityStates: [AbilityState] = []
+    private var eventBuffer = [DIEvent](repeating: DIEvent(), count: 8)
+
+    private init() {
+        abilityNames = [String](repeating: "", count: Int(DI_MAX_ABILITIES))
+        abilityStates = [AbilityState](repeating: AbilityState(),
+                                       count: Int(DI_MAX_ABILITIES))
+    }
 
     // MARK: Lifecycle
 
-    func boot(saveDir: String, classId: Int32, seed: UInt64, hasSave: Bool) {
-        dionite_boot(saveDir, classId, seed, hasSave ? 1 : 0)
+    @discardableResult
+    func boot(saveDir: String, classId: Int32, seed: UInt64, hasSave: Bool,
+              width: Int32, height: Int32) -> Bool {
+        var params = DIBootParams()
+        params.seed = seed
+        params.classId = classId
+        params.hasSave = hasSave ? 1 : 0
+        params.width = max(1, width)
+        params.height = max(1, height)
+        let started = saveDir.withCString { directory -> Int32 in
+            params.saveDir = directory
+            return dionite_boot(&params)
+        }
+        if started != 0 {
+            textRevision = .max
+        }
+        return started != 0
     }
 
     func shutdown() { dionite_shutdown() }
     func tick(delta: Float) { dionite_tick(delta) }
     func resize(width: Int32, height: Int32) { dionite_resize(width, height) }
-    func pause() { dionite_pause() }
-    func resume() { dionite_resume() }
-    func saveNow() { dionite_save_now() }
-    var version: Int32 { dionite_version() }
+    func setPaused(_ paused: Bool) { dionite_set_paused(paused ? 1 : 0) }
+    func saveNow() { dionite_save() }
+
+    var isRunning: Bool { dionite_is_running() != 0 }
+    var abiVersion: Int32 { dionite_abi_version() }
+    var saveVersion: Int32 { dionite_save_version() }
+    var lastError: String {
+        guard let pointer = dionite_last_error() else { return "" }
+        return String(cString: pointer)
+    }
 
     static func saveExists(in directory: String) -> Bool {
-        return dionite_save_exists(directory) != 0
+        return directory.withCString { dionite_save_exists($0) != 0 }
     }
 
     // MARK: Input
 
-    func setMove(x: Float, y: Float) { dionite_set_move(x, y) }
-    func setAim(x: Float, y: Float) { dionite_set_aim(x, y) }
-    func setFire(_ pressed: Bool) { dionite_set_fire(pressed ? 1 : 0) }
-    func setDash(_ pressed: Bool) { dionite_set_dash(pressed ? 1 : 0) }
-    func setAbility(_ slot: Int, _ pressed: Bool) {
-        dionite_set_ability(Int32(slot), pressed ? 1 : 0)
-    }
-    func clickToMove(world: SIMD3<Float>) { dionite_click_to_move(world.x, world.y, world.z) }
+    func move(x: Float, y: Float) { dionite_move(x, y) }
+    func aim(x: Float, y: Float) { dionite_aim(x, y) }
+    func fire(_ held: Bool) { dionite_fire(held ? 1 : 0) }
+    func dash() { dionite_dash() }
+    func ability(_ slot: Int) { dionite_ability(Int32(slot)) }
+    func moveTo(_ world: SIMD3<Float>) { dionite_move_to(world.x, world.y, world.z) }
     func cameraPan(deltaDeg: Float) { dionite_camera_pan(deltaDeg) }
+    func interact() { dionite_interact() }
+    func usePotion() { dionite_use_potion() }
 
     /// Projects a screen tap (NDC, y up) onto the ground plane.
     func screenToWorld(ndcX: Float, ndcY: Float) -> SIMD3<Float>? {
-        var world = [Float](repeating: 0, count: 3)
-        let ok = world.withUnsafeMutableBufferPointer { pointer -> Int32 in
-            dionite_screen_to_world(ndcX, ndcY, pointer.baseAddress)
-        }
-        guard ok != 0 else { return nil }
-        return SIMD3(world[0], world[1], world[2])
-    }
-
-    /// `[right.xyz, up.xyz]` of the camera, for billboarding.
-    func cameraBasis() -> (right: SIMD3<Float>, up: SIMD3<Float>) {
-        var right = [Float](repeating: 0, count: 3)
-        var up = [Float](repeating: 0, count: 3)
-        right.withUnsafeMutableBufferPointer { rightPointer in
-            up.withUnsafeMutableBufferPointer { upPointer in
-                dionite_camera_basis(rightPointer.baseAddress, upPointer.baseAddress)
+        var world = SIMD3<Float>.zero
+        let ok = withUnsafeMutablePointer(to: &world) { pointer -> Int32 in
+            pointer.withMemoryRebound(to: Float.self, capacity: 3) { floats in
+                dionite_screen_to_world(ndcX, ndcY, floats)
             }
         }
-        return (SIMD3(right[0], right[1], right[2]), SIMD3(up[0], up[1], up[2]))
+        return ok != 0 ? world : nil
     }
-    func interact() { dionite_interact() }
-    func usePotion() { dionite_use_potion() }
 
     // MARK: Game flow
 
     func respawn() { dionite_respawn() }
     func travel(to region: Int32) { dionite_travel(region) }
-    func startSpire() { dionite_start_spire() }
-    func exitSpire() { dionite_exit_spire() }
-    func equipItem(at index: Int32) { dionite_equip_item(index) }
+    func spire(enter: Bool) { dionite_spire(enter ? 1 : 0) }
+    func equipItem(at index: Int32) { dionite_equip(index) }
 
-    // MARK: Frame snapshots
+    // MARK: Frame
 
-    /// Refreshes the cached camera block and returns the raw struct.
-    func cameraSnapshot() -> DICamera? {
-        var camera = DICamera()
-        return dionite_camera(&camera) != 0 ? camera : nil
-    }
-
-    /// Refreshes the HUD block and returns the raw struct (scalars only).
-    func hudSnapshot() -> DIHud? {
-        var hud = DIHud()
-        return dionite_hud(&hud) != 0 ? hud : nil
-    }
-
-    /// 16 column-major floats forming `proj * view`.
-    func viewProjection() -> [Float] {
-        guard let pointer = dionite_camera_view_proj() else {
-            return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    /// Pulls the per-frame snapshot. This is the only place the HUD, camera,
+    /// instance list and damage numbers are read.
+    func frame() -> FrameSnapshot? {
+        guard let raw = dionite_frame() else { return nil }
+        let snapshot = raw.pointee
+        guard let cameraPointer = snapshot.camera,
+              let hudPointer = snapshot.hud else {
+            return nil
         }
-        return (0..<16).map { pointer[$0] }
+
+        refreshTextCache()
+
+        hud = hudPointer.pointee
+        refreshAbilityStates()
+
+        var projection = matrix_identity_float4x4
+        if let floats = snapshot.viewProjection {
+            projection = simd_float4x4(columns: (
+                SIMD4<Float>(floats[0], floats[1], floats[2], floats[3]),
+                SIMD4<Float>(floats[4], floats[5], floats[6], floats[7]),
+                SIMD4<Float>(floats[8], floats[9], floats[10], floats[11]),
+                SIMD4<Float>(floats[12], floats[13], floats[14], floats[15])
+            ))
+        }
+
+        var damage = UnsafeBufferPointer<DIDamageNumber>(start: nil, count: 0)
+        if let numbers = snapshot.damageNumbers, snapshot.damageNumberCount > 0 {
+            damage = UnsafeBufferPointer(start: numbers,
+                                         count: Int(snapshot.damageNumberCount))
+        }
+
+        return FrameSnapshot(camera: cameraPointer.pointee,
+                             hud: hudPointer.pointee,
+                             instances: snapshot.instances,
+                             opaqueCount: snapshot.opaqueCount,
+                             translucentCount: snapshot.translucentCount,
+                             additiveCount: snapshot.additiveCount,
+                             damageNumbers: damage,
+                             viewProjection: projection)
     }
 
-    /// `[eye.xyz, sunDirection.xyz, sunColor.xyz, fogColor.xyz]`
-    func cameraVectors() -> [Float] {
-        var values = [Float](repeating: 0, count: 12)
-        dionite_camera_vectors(&values)
-        return values
-    }
-
-    /// `[time, sunIntensity, ambient, fogDensity, exposure, shake]`
-    func cameraFactors() -> [Float] {
-        var values = [Float](repeating: 0, count: 6)
-        dionite_camera_factors(&values)
-        return values
-    }
-
-    func instances() -> (pointer: UnsafePointer<DIInstance>?, opaque: Int32,
-                         translucent: Int32, additive: Int32) {
-        var opaqueCount: Int32 = 0
-        var translucentCount: Int32 = 0
-        var additiveCount: Int32 = 0
-        let pointer = dionite_instances(&opaqueCount, &translucentCount, &additiveCount)
-        return (pointer, opaqueCount, translucentCount, additiveCount)
-    }
-
-    // MARK: Strings and per-slot data
+    // MARK: Strings (cached by revision)
 
     func hudText(_ field: Int32) -> String {
-        var buffer = [CChar](repeating: 0, count: 160)
-        buffer.withUnsafeMutableBufferPointer { pointer in
-            dionite_hud_text(field, pointer.baseAddress, Int32(pointer.count))
-        }
-        return readCString(buffer)
+        refreshTextCache()
+        return textByField[field] ?? ""
     }
 
     func ability(_ slot: Int) -> AbilityState {
-        var nameBuffer = [CChar](repeating: 0, count: 32)
-        var cooldown: Float = 0
-        var cooldownMax: Float = 0
-        var ready: UInt32 = 0
-        var cost: Float = 0
-        nameBuffer.withUnsafeMutableBufferPointer { pointer in
-            dionite_ability(Int32(slot), pointer.baseAddress, Int32(pointer.count),
-                            &cooldown, &cooldownMax, &ready, &cost)
-        }
-        return AbilityState(name: readCString(nameBuffer),
-                            cooldown: cooldown,
-                            cooldownMax: cooldownMax,
-                            ready: ready != 0,
-                            cost: cost)
+        guard slot >= 0, slot < abilityStates.count else { return AbilityState() }
+        return abilityStates[slot]
     }
 
-    func popEvent() -> WorldEvent? {
-        var kind: Int32 = 0
-        var buffer = [CChar](repeating: 0, count: 192)
-        var written = 0
-        buffer.withUnsafeMutableBufferPointer { pointer in
-            written = Int(dionite_pop_event_text(&kind, pointer.baseAddress,
-                                                 Int32(pointer.count)))
+    private func refreshTextCache() {
+        let revision = dionite_text_revision()
+        guard revision != textRevision else { return }
+        textRevision = revision
+
+        var fields: [Int32: String] = [:]
+        for field in Int32(0)..<7 {
+            if let pointer = dionite_hud_text(field) {
+                fields[field] = String(cString: pointer)
+            }
         }
-        guard written != 0 else { return nil }
-        let text = readCString(buffer)
-        guard !text.isEmpty else { return nil }
-        return WorldEvent(kind: kind, text: text)
+        textByField = fields
+
+        var names: [String] = []
+        names.reserveCapacity(Int(DI_MAX_ABILITIES))
+        for slot in 0..<Int(DI_MAX_ABILITIES) {
+            if let pointer = dionite_ability_name(Int32(slot)) {
+                names.append(String(cString: pointer))
+            } else {
+                names.append("")
+            }
+        }
+        abilityNames = names
     }
 
-    func damageNumbers(limit: Int = 64) -> [DIDamageNumber] {
-        var buffer = [DIDamageNumber](repeating: DIDamageNumber(), count: limit)
-        let count = buffer.withUnsafeMutableBufferPointer { pointer -> Int32 in
-            dionite_damage_numbers(pointer.baseAddress, Int32(pointer.count))
+    private func refreshAbilityStates() {
+        var source = hud
+        var states: [AbilityState] = []
+        states.reserveCapacity(Int(DI_MAX_ABILITIES))
+        withUnsafeBytes(of: &source.abilities) { raw in
+            let abilities = raw.bindMemory(to: DIHudAbility.self)
+            for slot in 0..<Int(DI_MAX_ABILITIES) {
+                let ability = abilities[slot]
+                states.append(AbilityState(name: abilityNames[slot],
+                                           cooldown: ability.cooldown,
+                                           cooldownMax: ability.cooldownMax,
+                                           ready: ability.ready != 0,
+                                           cost: ability.resourceCost))
+            }
+        }
+        abilityStates = states
+    }
+
+    // MARK: Events
+
+    func popEvents(limit: Int = 4) -> [WorldEvent] {
+        let capacity = min(limit, eventBuffer.count)
+        guard capacity > 0 else { return [] }
+        let count = eventBuffer.withUnsafeMutableBufferPointer { buffer -> Int32 in
+            dionite_pop_events(buffer.baseAddress, Int32(capacity))
         }
         guard count > 0 else { return [] }
-        return Array(buffer.prefix(Int(count)))
+
+        var events: [WorldEvent] = []
+        events.reserveCapacity(Int(count))
+        for index in 0..<Int(count) {
+            var event = eventBuffer[index]
+            let text = string(from: &event.text, capacity: 160)
+            if !text.isEmpty {
+                events.append(WorldEvent(kind: event.type, text: text))
+            }
+        }
+        return events
     }
 
     // MARK: Inventory
 
-    var inventoryCount: Int32 { return dionite_inventory_count() }
+    var inventoryCount: Int32 { dionite_inventory_count() }
 
     func inventoryRow(_ index: Int32) -> ItemRow? {
-        var nameBuffer = [CChar](repeating: 0, count: 64)
-        var detailBuffer = [CChar](repeating: 0, count: 128)
-        var rarity: Int32 = 0
-        var ilvl: Int32 = 0
-        var damage: Float = 0
-        var equipped: Int32 = 0
-        var sockets: Int32 = 0
-
-        let written: Int32 = nameBuffer.withUnsafeMutableBufferPointer { namePointer in
-            detailBuffer.withUnsafeMutableBufferPointer { detailPointer in
-                dionite_inventory_row(index,
-                                      namePointer.baseAddress, Int32(namePointer.count),
-                                      detailPointer.baseAddress, Int32(detailPointer.count),
-                                      &rarity, &ilvl, &damage, &equipped, &sockets)
-            }
-        }
-        guard written != 0 else { return nil }
-        return ItemRow(name: readCString(nameBuffer),
-                       detail: readCString(detailBuffer),
-                       rarity: rarity,
-                       ilvl: ilvl,
-                       damage: damage,
-                       equipped: equipped != 0,
-                       sockets: sockets)
+        var item = DIItem()
+        guard dionite_inventory_item(index, &item) != 0 else { return nil }
+        let name = string(from: &item.name, capacity: 48)
+        let detail = string(from: &item.detail, capacity: 112)
+        return ItemRow(name: name,
+                       detail: detail,
+                       rarity: item.rarity,
+                       ilvl: item.ilvl,
+                       damage: item.damage,
+                       equipped: item.equipped != 0,
+                       sockets: item.sockets)
     }
 
     // MARK: Status
 
-    var skillPoints: Int32 { return dionite_skill_points() }
-    var spireFloorBest: Int32 { return dionite_spire_best() }
-    var playSeconds: Float { return dionite_play_seconds() }
-    var campaignComplete: Bool { return dionite_campaign_complete() != 0 }
-    var resumedSave: Bool { return dionite_has_save() != 0 }
+    var skillPoints: Int32 { dionite_skill_points() }
+    var spireFloorBest: Int32 { dionite_spire_best() }
+    var playSeconds: Float { dionite_play_seconds() }
+    var campaignComplete: Bool { dionite_campaign_complete() != 0 }
+    var resumedSave: Bool { dionite_resumed_save() != 0 }
+
+    /// Serialised live save, copied out of the runtime.
+    func saveJSON() -> Data? {
+        let needed = dionite_save_json(nil, 0)
+        guard needed > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: Int(needed) + 1)
+        let written = buffer.withUnsafeMutableBufferPointer { pointer -> Int32 in
+            dionite_save_json(pointer.baseAddress, Int32(pointer.count))
+        }
+        guard written > 0 else { return nil }
+        return buffer.withUnsafeBytes { raw in
+            Data(raw.prefix(Int(written)))
+        }
+    }
+
+    // MARK: Helpers
+
+    private func string<T>(from value: inout T, capacity: Int) -> String {
+        return withUnsafePointer(to: &value) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { characters in
+                String(cString: characters)
+            }
+        }
+    }
 }

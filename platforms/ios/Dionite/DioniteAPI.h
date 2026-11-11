@@ -1,160 +1,157 @@
 // ============================================================================
-// Dionite — C ABI surface called from Swift through the Objective-C bridging
-// header. Pure C: safe to include from the bridging header and from the C++
-// bridge implementation (DioniteBridgeImpl.cpp).
+// Dionite — C ABI (version 2).
+//
+// The complete surface between the Metal/UIKit host and the portable C++ game
+// core. Rules:
+//
+//   * POD-only. No C++ types cross this header.
+//   * Every symbol is `extern "C"`, main-thread only, and never throws.
+//   * Per-frame reads go through `dionite_frame()` and the stable string
+//     accessors. None of them allocate; all pointers are owned by the runtime
+//     and stay valid until the next tick/frame/shutdown.
+//   * Buttons that the simulation consumes on a rising edge (`dionite_dash`,
+//     `dionite_ability`) are one-shot calls, not held state.
+//
+// The header is valid C11 and C++17 so it can be included from the Obj-C
+// bridging header and from the C++ implementation.
 // ============================================================================
 #ifndef DIONITE_API_H
 #define DIONITE_API_H
 
 #include <stdint.h>
+
 #include "Game/Snapshot.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#define DIONITE_ABI_VERSION 2
+
+#ifdef __cplusplus
+#define DI_NOEXCEPT noexcept
+#else
+#define DI_NOEXCEPT
+#endif
+
 // -- Lifecycle --------------------------------------------------------------
-// saveDir: writable directory for autosaves (iOS Documents dir, /tmp on CI).
-// classId: 0 crusader, 1 necromancer, 2 sorcerer, 3 ranger, 4 monk.
-// seed:    world seed; pass 0 for a fresh randomized campaign.
-// hasSave: 1 = continue existing save found in saveDir, 0 = fresh campaign.
-void dionite_boot(const char* saveDir, int32_t classId, uint64_t seed, int32_t hasSave);
-void dionite_shutdown(void);
-void dionite_tick(float dt);
-void dionite_resize(int32_t width, int32_t height);
-void dionite_pause(void);
-void dionite_resume(void);
-int32_t dionite_version(void);
+
+typedef struct DIBootParams {
+    const char* saveDir;  // UTF-8 writable directory; copied before return
+    uint64_t    seed;     // 0 = the deterministic default world seed
+    int32_t     classId;  // 0..4 (see ClassRegistry)
+    int32_t     hasSave;  // 1 = resume the save found in saveDir
+    int32_t     width;    // drawable width in pixels
+    int32_t     height;   // drawable height in pixels
+} DIBootParams;
+
+// Returns 1 when the runtime is ready, 0 on failure (`dionite_last_error`).
+// Safe to call again: a previous runtime is shut down first.
+int32_t     dionite_boot(const DIBootParams* params) DI_NOEXCEPT;
+void        dionite_shutdown(void) DI_NOEXCEPT;
+int32_t     dionite_is_running(void) DI_NOEXCEPT;
+int32_t     dionite_abi_version(void) DI_NOEXCEPT;
+int32_t     dionite_save_version(void) DI_NOEXCEPT;
+const char* dionite_last_error(void) DI_NOEXCEPT;  // "" when none
+
+void dionite_tick(float dt) DI_NOEXCEPT;
+void dionite_resize(int32_t width, int32_t height) DI_NOEXCEPT;
+void dionite_set_paused(int32_t paused) DI_NOEXCEPT;
 
 // -- Input ------------------------------------------------------------------
-void dionite_set_move(float x, float y);           // left stick / WASD, -1..1
-void dionite_set_aim(float x, float y);            // right stick, -1..1
-void dionite_set_fire(int32_t pressed);            // fire held
-void dionite_set_dash(int32_t pressed);            // dash button
-void dionite_set_ability(int32_t slot, int32_t pressed); // ability slot 0..5
-void dionite_click_to_move(float x, float y, float z);   // world-space ground point
-void dionite_camera_pan(float deltaDeg);           // two-finger yaw pan
-void dionite_interact(void);                       // open chest / use portal
-void dionite_use_potion(void);
 
-// -- Game flow --------------------------------------------------------------
-void dionite_respawn(void);                        // after death
-void dionite_travel(int32_t region);               // fast travel to unlocked biome
-void dionite_start_spire(void);                    // enter Infinity Spire endgame
-void dionite_exit_spire(void);                     // leave spire back to campaign
-void dionite_equip_item(int32_t inventoryIndex);
-void dionite_save_now(void);
+void dionite_move(float x, float y) DI_NOEXCEPT;   // -1..1
+void dionite_aim(float x, float y) DI_NOEXCEPT;    // -1..1
+void dionite_fire(int32_t held) DI_NOEXCEPT;
+void dionite_dash(void) DI_NOEXCEPT;               // edge-triggered
+void dionite_ability(int32_t slot) DI_NOEXCEPT;    // edge-triggered, 0..5
+void dionite_move_to(float x, float y, float z) DI_NOEXCEPT;
+void dionite_camera_pan(float deltaDeg) DI_NOEXCEPT;
+void dionite_interact(void) DI_NOEXCEPT;
+void dionite_use_potion(void) DI_NOEXCEPT;
 
-// -- Frame snapshots --------------------------------------------------------
-int32_t dionite_camera(DICamera* out);                       // 1 on success
-int32_t dionite_hud(DIHud* out);                             // 1 on success
-const DIInstance* dionite_instances(int32_t* opaqueCount,
-                                    int32_t* translucentCount,
-                                    int32_t* additiveCount);
-int32_t dionite_damage_numbers(DIDamageNumber* out, int32_t maxCount);
-int32_t dionite_pop_event(DIEvent* out);                     // 1 if an event was queued
-int32_t dionite_inventory_count(void);
-int32_t dionite_inventory_item(int32_t index, DIItem* out);  // 1 on success
+// -- Meta / flow -------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Swift-friendly accessors
-//
-// C fixed-size arrays that live *inside* a struct do not import into Swift in
-// a usable shape, so every matrix / vector / string crosses the boundary
-// through either a plain `float*` return or a caller-provided buffer. The
-// scalar fields of the structs above are read directly from Swift.
-// ---------------------------------------------------------------------------
+void dionite_respawn(void) DI_NOEXCEPT;
+void dionite_travel(int32_t region) DI_NOEXCEPT;
+void dionite_spire(int32_t enter) DI_NOEXCEPT;
+void dionite_equip(int32_t inventoryIndex) DI_NOEXCEPT;
+void dionite_save(void) DI_NOEXCEPT;
 
-// 16 column-major floats forming (proj * view). Replaces the pair each call to
-// dionite_camera(); the pointer stays valid until the next snapshot call.
-const float* dionite_camera_view_proj(void);
+// -- Frame snapshot ----------------------------------------------------------
 
-// out[0..2] eye position, [3..5] sun direction, [6..8] sun colour,
-// [9..11] fog colour.
-void dionite_camera_vectors(float* out12);
+typedef struct DIFrame {
+    const DICamera*        camera;
+    const DIHud*           hud;
+    const DIInstance*      instances;        // opaque, then translucent, then additive
+    int32_t                opaqueCount;
+    int32_t                translucentCount;
+    int32_t                additiveCount;
+    const DIDamageNumber*  damageNumbers;
+    int32_t                damageNumberCount;
+    const float*           viewProjection;   // 16 column-major floats, proj * view
+} DIFrame;
 
-// outRight3 / outUp3: the camera basis, used to orient billboarded quads.
-void dionite_camera_basis(float* outRight3, float* outUp3);
+// Refreshes and returns the frame snapshot. One call per rendered frame.
+const DIFrame* dionite_frame(void) DI_NOEXCEPT;
 
-// Projects a ground-plane point from NDC (-1..1, y up) into world space so a
-// screen tap can drive click-to-move. Returns 1 on success.
-int32_t dionite_screen_to_world(float ndcX, float ndcY, float* outWorld3);
+// Stable, NUL-terminated strings. No allocation; pointers live in the runtime.
+const char* dionite_hud_text(int32_t field) DI_NOEXCEPT;        // DIHudTextField
+const char* dionite_ability_name(int32_t slot) DI_NOEXCEPT;     // "" when absent
 
-// out[0] time, [1] sun intensity, [2] ambient, [3] fog density,
-// [4] exposure, [5] screen shake.
-void dionite_camera_factors(float* out6);
+// Increments whenever any HUD or ability string changes, so the host can cache
+// Foundation strings instead of rebuilding them every frame.
+uint32_t dionite_text_revision(void) DI_NOEXCEPT;
 
-// HUD string fields (see DIHudTextField).
-void dionite_hud_text(int32_t field, char* out, int32_t cap);
+// Copies up to `maxCount` queued events, oldest first. Returns the count.
+int32_t dionite_pop_events(DIEvent* out, int32_t maxCount) DI_NOEXCEPT;
 
-// One ability slot: name is copied into outName, the rest are scalars.
-void dionite_ability(int32_t slot, char* outName, int32_t nameCap,
-                     float* outCooldown, float* outCooldownMax,
-                     uint32_t* outReady, float* outCost);
+// Projects a screen point (NDC, y up) onto the ground plane.
+int32_t dionite_screen_to_world(float ndcX, float ndcY, float* outWorld3) DI_NOEXCEPT;
 
-// Pops the oldest queued event; returns 1 when one was written.
-int32_t dionite_pop_event_text(int32_t* outType, char* out, int32_t cap);
+// -- Inventory ---------------------------------------------------------------
 
-// Copies one inventory row; returns 1 on success.
-int32_t dionite_inventory_row(int32_t index,
-                              char* outName, int32_t nameCap,
-                              char* outDetail, int32_t detailCap,
-                              int32_t* outRarity, int32_t* outIlvl,
-                              float* outDamage, int32_t* outEquipped,
-                              int32_t* outSockets);
+int32_t dionite_inventory_count(void) DI_NOEXCEPT;
+int32_t dionite_inventory_item(int32_t index, DIItem* out) DI_NOEXCEPT;
 
-// Campaign state that is not part of DIHud.
-int32_t dionite_skill_points(void);
-int32_t dionite_spire_best(void);
-float   dionite_play_seconds(void);
-int32_t dionite_campaign_complete(void);
-int32_t dionite_has_save(void);        // 1 when this session resumed a save
-int32_t dionite_save_exists(const char* saveDir);
+// -- Status ------------------------------------------------------------------
 
-// Serialises the live save state as compact JSON for cloud upload (PUT
-// /api/save). The pointer stays valid until the next Dionite call; read
-// dionite_save_json_length() bytes from it. Returns "" when nothing booted.
-const char* dionite_save_json(void);
-int32_t dionite_save_json_length(void);
+int32_t dionite_skill_points(void) DI_NOEXCEPT;
+int32_t dionite_spire_best(void) DI_NOEXCEPT;
+float   dionite_play_seconds(void) DI_NOEXCEPT;
+int32_t dionite_campaign_complete(void) DI_NOEXCEPT;
+int32_t dionite_resumed_save(void) DI_NOEXCEPT;
+int32_t dionite_save_exists(const char* saveDir) DI_NOEXCEPT;
 
-// See GameRuntime::devUnlockAllRegions / devSetBossHealth.
-void dionite_dev_unlock_all(void);
-void dionite_dev_set_boss_health(float fraction01);
+// Copies the live save JSON into `out`, always NUL-terminated. Returns the full
+// byte length (so `dionite_save_json(NULL, 0)` reports the required capacity).
+int32_t dionite_save_json(char* out, int32_t capacity) DI_NOEXCEPT;
 
-// -- Audio ------------------------------------------------------------------
-// The core queues sound cues during dionite_tick(); the platform synthesizer
-// drains them once per frame. Poll from the main thread only (the queue is
-// not thread-safe) and hand the events to your audio render thread through
-// your own lock-free buffer.
-// Returns 1 when an event was written, 0 when the queue is empty.
-int32_t dionite_audio_poll(int32_t* outId, float* outGain,
-                           float* outPitch, float* outPan);
-int32_t dionite_audio_pending(void);   // events waiting to be drained
+// -- Audio -------------------------------------------------------------------
 
-// Score state machine for the generative music engine. Raw values are the
-// dionite::audio::MusicMood / Ambient enum ints (see Audio/AudioManager.h):
-// mood 0 silent, 1 hub, 2 explore, 3 combat, 4 boss, 5 death, 6 spire, 7 victory;
-// ambient 0 none, 1 forest, 2 ash, 3 crypt, 4 ice, 5 sky.
-int32_t dionite_audio_music(void);
-int32_t dionite_audio_ambient(void);
-int32_t dionite_audio_in_combat(void);
+// Drains up to `maxEvents` queued cues into the four parallel arrays. Each array
+// must hold `maxEvents` elements. Returns the number of cues written.
+int32_t dionite_audio_drain(int32_t* outIds, float* outGains, float* outPitches,
+                            float* outPans, int32_t maxEvents) DI_NOEXCEPT;
+int32_t dionite_audio_pending(void) DI_NOEXCEPT;
+int32_t dionite_audio_music(void) DI_NOEXCEPT;
+int32_t dionite_audio_ambient(void) DI_NOEXCEPT;
+int32_t dionite_audio_in_combat(void) DI_NOEXCEPT;
+float   dionite_audio_sfx_gain(void) DI_NOEXCEPT;
+float   dionite_audio_music_gain(void) DI_NOEXCEPT;
+void    dionite_audio_set_master(float value) DI_NOEXCEPT;
+void    dionite_audio_set_music_volume(float value) DI_NOEXCEPT;
+void    dionite_audio_set_sfx_volume(float value) DI_NOEXCEPT;
+void    dionite_audio_set_muted(int32_t muted) DI_NOEXCEPT;
+float   dionite_audio_master(void) DI_NOEXCEPT;
+float   dionite_audio_music_volume(void) DI_NOEXCEPT;
+float   dionite_audio_sfx_volume(void) DI_NOEXCEPT;
+int32_t dionite_audio_is_muted(void) DI_NOEXCEPT;
 
-// Effective mixer gains (0..1, master/bus already combined, 0 when muted).
-float dionite_audio_sfx_gain(void);
-float dionite_audio_music_gain(void);
-
-// Player-facing mixer control (settings UI). Persisted with the save.
-void dionite_audio_set_master(float v);
-void dionite_audio_set_music_volume(float v);
-void dionite_audio_set_sfx_volume(float v);
-void dionite_audio_set_muted(int32_t muted);
-
-// Current mixer state, for reflecting the settings UI (saved values may
-// differ from the defaults after a load).
-float   dionite_audio_master(void);
-float   dionite_audio_music_volume(void);
-float   dionite_audio_sfx_volume(void);
-int32_t dionite_audio_is_muted(void);
+// -- Development seams -------------------------------------------------------
+// Compiled in every build; used by the automated verification harness.
+void dionite_dev_unlock_all(void) DI_NOEXCEPT;
+void dionite_dev_set_boss_health(float fraction01) DI_NOEXCEPT;
 
 #ifdef __cplusplus
 } // extern "C"

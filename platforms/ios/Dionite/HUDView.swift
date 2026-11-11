@@ -594,7 +594,8 @@ final class HUDView: UIView {
     }
 
     /// Positions floating damage numbers using the current view-projection.
-    func show(damage numbers: [DIDamageNumber], viewProj: simd_float4x4, size: CGSize) {
+    func show(damage numbers: UnsafeBufferPointer<DIDamageNumber>,
+              viewProj: simd_float4x4, size: CGSize) {
         for (index, label) in damageLabels.enumerated() {
             guard index < numbers.count else {
                 label.isHidden = true

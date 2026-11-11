@@ -160,6 +160,10 @@ final class AudioEngine {
     // Shared across threads — always reached under `lock`.
     private let lock = NSLock()
     private var pendingCues: [Cue] = []
+    private var drainIds = [Int32](repeating: 0, count: 96)
+    private var drainGains = [Float](repeating: 0, count: 96)
+    private var drainPitches = [Float](repeating: 1, count: 96)
+    private var drainPans = [Float](repeating: 0, count: 96)
     private var sharedMood: Int32 = 0
     private var sharedBed: Int32 = 0
     private var sharedSfxGain: Float = 1
@@ -244,19 +248,28 @@ final class AudioEngine {
     /// Drains the core's cue queue and refreshes the shared score state.
     /// Call once per frame, right after dionite_tick().
     func pumpFromCore() {
-        var id: Int32 = 0
-        var gain: Float = 0
-        var pitch: Float = 0
-        var pan: Float = 0
-        var drained = 0
-        while dionite_audio_poll(&id, &gain, &pitch, &pan) != 0 {
+        let capacity = min(drainIds.count, 96)
+        let drained = drainIds.withUnsafeMutableBufferPointer { ids -> Int32 in
+            drainGains.withUnsafeMutableBufferPointer { gains in
+                drainPitches.withUnsafeMutableBufferPointer { pitches in
+                    drainPans.withUnsafeMutableBufferPointer { pans in
+                        dionite_audio_drain(ids.baseAddress, gains.baseAddress,
+                                            pitches.baseAddress, pans.baseAddress,
+                                            Int32(capacity))
+                    }
+                }
+            }
+        }
+
+        if drained > 0 {
             lock.lock()
-            if pendingCues.count < 192 {
-                pendingCues.append(Cue(id: id, gain: gain, pitch: pitch, pan: pan))
+            for index in 0..<Int(drained) where pendingCues.count < 192 {
+                pendingCues.append(Cue(id: drainIds[index],
+                                       gain: drainGains[index],
+                                       pitch: drainPitches[index],
+                                       pan: drainPans[index]))
             }
             lock.unlock()
-            drained += 1
-            if drained >= 96 { break }
         }
 
         let mood = dionite_audio_music()

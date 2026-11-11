@@ -165,8 +165,7 @@ final class GameService {
     /// in the background. Fire-and-forget: failures just retry next cycle.
     func pushCurrentSave() {
         guard session != nil else { return }
-        let json = String(cString: dionite_save_json())
-        guard !json.isEmpty, let data = json.data(using: .utf8) else { return }
+        guard let data = DioniteBridge.shared.saveJSON(), !data.isEmpty else { return }
         Task { [weak self] in
             _ = try? await self?.uploadSave(data)
         }
@@ -178,7 +177,7 @@ final class GameService {
     func shouldAdoptCloudSave(cloud: Data, local: Data?) -> Bool {
         guard let c = Self.parseObject(cloud),
               let version = c["version"] as? Int,
-              version == Int(dionite_version()) else {
+              version == Int(DioniteBridge.shared.saveVersion) else {
             return false
         }
         let cloudPlay = Self.number(c, "playSeconds")
